@@ -1,0 +1,25 @@
+{
+  "name": "sudachi.wasm",
+  "version": "0.1.5",
+  "source": "npm package sudachi@0.1.5 (github.com/hata6502/sudachi-wasm, Apache-2.0)",
+  "compression": "gzip",
+  "rawSize": 123250613,
+  "rawSha256": "c1485e172eb74e07c487ef8e0ed43044ec7424281cca3784dd2e81182f45dc8e",
+  "parts": [
+    {
+      "file": "sudachi.wasm.gz.part1",
+      "size": 20971520,
+      "sha256": "d119cf7dad45b9741dd37bd5352050da8309d3f270ba1426680937720b6419e1"
+    },
+    {
+      "file": "sudachi.wasm.gz.part2",
+      "size": 20971520,
+      "sha256": "9370eba444e21587e1583b954110c16782f7d043aeb73bfd23fb23921b9a5a03"
+    },
+    {
+      "file": "sudachi.wasm.gz.part3",
+      "size": 2435314,
+      "sha256": "6479dbc9d8c98c25ea37333a78931a7831922f7aff02a5b6d1e86796d4b24438"
+    }
+  ]
+}
