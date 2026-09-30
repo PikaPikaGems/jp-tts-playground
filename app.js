@@ -1,0 +1,621 @@
+import { PiperPlus } from "piper-plus";
+import * as ort from "onnxruntime-web";
+import { PATHS } from "./src/paths.js";
+import { shiftVoice, reduceBreathiness } from "./src/voicefx.js?v=29";
+import { groupBunsetsu, rubySegments, posLabel, posLabelEn, posColorKey, splitStudySentences } from "./src/furigana.js?v=29";
+
+const $ = (id) => document.getElementById(id);
+
+// Single-threaded WASM so no COOP/COEP headers are needed.
+ort.env.wasm.numThreads = 1;
+ort.env.wasm.wasmPaths = new URL(PATHS.ortDist, location.href).href;
+
+// ------------------------------------------------------------ sentence split
+// Split on sentence enders / newlines; break overlong sentences at 、 so each
+// synthesis call stays small (keeps latency to first audio low).
+const MAX_CHARS = 40;
+function splitSentences(text) {
+  const out = [];
+  for (const s of splitStudySentences(text)) { // sentence boundaries incl. English "." (shared with study mode)
+    if (s.length <= MAX_CHARS) { out.push(s); continue; }
+    let buf = "";
+    for (const part of s.match(/[^、，,]+[、，,]?/g) ?? [s]) {
+      if (buf && (buf + part).length > MAX_CHARS) { out.push(buf); buf = ""; }
+      buf += part;
+    }
+    if (buf) out.push(buf);
+  }
+  return out;
+}
+
+// --------------------------------------------------------------- audio queue
+let ctx = null;
+let playing = new Set();
+let generation = 0; // bumped by Stop to cancel in-flight speak() loops
+
+/** Schedules chunks back-to-back so playback starts with the first one. */
+class Playback {
+  constructor() { this.next = 0; this.last = null; this.gen = generation; }
+  async add(samples, sampleRate) {
+    ctx ??= new AudioContext();
+    await ctx.resume();
+    const buf = ctx.createBuffer(1, samples.length, sampleRate);
+    buf.copyToChannel(samples, 0);
+    const src = ctx.createBufferSource();
+    src.buffer = buf;
+    src.connect(ctx.destination);
+    this.next = Math.max(this.next, ctx.currentTime + 0.05);
+    src.start(this.next);
+    this.next += buf.duration;
+    playing.add(src);
+    this.last = new Promise((resolve) => { src.onended = () => { playing.delete(src); resolve(); }; });
+  }
+  finished() { return this.last ?? Promise.resolve(); }
+}
+
+// ---------------------------------------------------------- language routing
+// A sentence with letters but no kana/kanji (e.g. "Going to the gym!") is read by the browser's own voice by
+// default: the Japanese voice models pronounce English with Japanese phonetics, which sounds very odd.
+const JA_CHARS = /[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uff66-\uff9f]/;
+const isForeign = (s) => !JA_CHARS.test(s) && /\p{L}/u.test(s);
+
+function speakBrowser(text, { rate = 1, pitchSt = 0 } = {}) {
+  return new Promise((resolve) => {
+    if (!("speechSynthesis" in window)) { resolve(); return; }
+    const u = new SpeechSynthesisUtterance(text);
+    u.lang = "en-US";
+    u.rate = Math.min(2, Math.max(0.5, rate));
+    u.pitch = Math.min(2, Math.max(0.1, 2 ** (pitchSt / 12)));
+    u.onend = u.onerror = () => resolve();
+    speechSynthesis.speak(u);
+  });
+}
+
+/**
+ * iOS Safari only lets a page start audio from inside a user gesture. Speak handlers call this synchronously at
+ * the top of the click (before any await/synthesis) so the AudioContext is created + resumed while the tap is
+ * still "live"; a 1-sample silent buffer completes the unlock on older iOS versions.
+ */
+function unlockAudio(text = "") {
+  // speechSynthesis has the same "must start inside a tap" rule on iOS: prime it when English text is coming
+  if (text && /[A-Za-z]/.test(text) && "speechSynthesis" in window) {
+    try { const u = new SpeechSynthesisUtterance(""); u.volume = 0; speechSynthesis.speak(u); } catch {}
+  }
+  ctx ??= new AudioContext();
+  if (ctx.state !== "running") ctx.resume();
+  try {
+    const src = ctx.createBufferSource();
+    src.buffer = ctx.createBuffer(1, 1, 22050);
+    src.connect(ctx.destination);
+    src.start(0);
+  } catch {}
+}
+
+function stopAudio() {
+  generation++;
+  try { window.speechSynthesis?.cancel(); } catch {}
+  for (const s of playing) { try { s.stop(); } catch {} }
+  playing.clear();
+}
+$("stop").addEventListener("click", stopAudio);
+
+function encodeWav(chunks, sampleRate) {
+  const n = chunks.reduce((a, c) => a + c.length, 0);
+  const view = new DataView(new ArrayBuffer(44 + n * 2));
+  const w = (o, s) => [...s].forEach((ch, i) => view.setUint8(o + i, ch.charCodeAt(0)));
+  w(0, "RIFF"); view.setUint32(4, 36 + n * 2, true); w(8, "WAVEfmt ");
+  view.setUint32(16, 16, true); view.setUint16(20, 1, true); view.setUint16(22, 1, true);
+  view.setUint32(24, sampleRate, true); view.setUint32(28, sampleRate * 2, true);
+  view.setUint16(32, 2, true); view.setUint16(34, 16, true); w(36, "data"); view.setUint32(40, n * 2, true);
+  let o = 44;
+  for (const c of chunks) for (let i = 0; i < c.length; i++, o += 2) {
+    view.setInt16(o, Math.max(-1, Math.min(1, c[i])) * 0x7fff, true);
+  }
+  return new Blob([view], { type: "audio/wav" });
+}
+
+// ------------------------------------------------------------------- card UI
+function setupCard(id, engine) {
+  const root = $(id);
+  const q = (sel) => root.querySelector(sel);
+  const logEl = q(".log");
+  const log = (m) => { logEl.textContent += m + "\n"; logEl.scrollTop = logEl.scrollHeight; console.log(`[${id}] ${m}`); };
+  const inputs = Object.fromEntries([...root.querySelectorAll("[data-p]")].map((el) => [el.dataset.p, el]));
+  const defaults = Object.fromEntries(Object.entries(inputs).map(([k, el]) => [k, el.value]));
+  const refresh = () => root.querySelectorAll("output[data-for]").forEach((o) => {
+    const v = Number(inputs[o.dataset.for].value);
+    o.textContent = o.dataset.for === "speed" ? `${v.toFixed(2)}×`
+      : o.dataset.for === "pitch" || o.dataset.for === "formant" ? `${v > 0 ? "+" : ""}${v.toFixed(1)} st`
+      : v.toFixed(2);
+  });
+  Object.values(inputs).forEach((el) => el.addEventListener("input", refresh));
+  q(".reset").addEventListener("click", () => { for (const k in inputs) inputs[k].value = defaults[k]; refresh(); });
+  refresh();
+
+  const params = () => Object.fromEntries(Object.entries(inputs).map(([k, el]) => [k, Number(el.value)]));
+  const state = { ready: false, busy: false };
+  const card = { state, onReady: null };
+
+  q(".load").addEventListener("click", async () => {
+    q(".load").disabled = true;
+    q(".speak").disabled = true;
+    state.ready = false;
+    try {
+      const t0 = performance.now();
+      await engine.load(q(".model").value, log);
+      state.ready = true;
+      q(".speak").disabled = false;
+      log(`Ready (loaded in ${((performance.now() - t0) / 1000).toFixed(1)}s).`);
+    } catch (err) {
+      log(`ERROR loading: ${err.message}`);
+      console.error(err);
+    } finally {
+      q(".load").disabled = false;
+      card.onReady?.();
+    }
+  });
+
+  // Synthesize sentence by sentence, playing as soon as the first is ready.
+  // Resolves when playback ends (or Stop is pressed).
+  card.speak = async (text, { interrupt = false } = {}) => {
+    if (!state.ready) return;
+    if (state.busy) {
+      if (!interrupt) return;
+      stopAudio(); // cancel the running loop, wait for it to wind down, then start the new text
+      await state.busyDone;
+    }
+    state.busy = true;
+    state.busyDone = new Promise((resolve) => { state.release = resolve; });
+    q(".speak").disabled = true;
+    const playback = new Playback();
+    const sentences = splitSentences(text);
+    const chunks = [];
+    let rate = 0;
+    try {
+      log(`${sentences.length} sentence(s)`);
+      const t0 = performance.now();
+      const base = params();
+      if (base.pitch || base.formant) log(`Voice: pitch ${base.pitch} st, formants ${base.formant} st (Rubber Band)`);
+      for (const [i, sentence] of sentences.entries()) {
+        if (playback.gen !== generation) { log("Stopped."); break; }
+        const t1 = performance.now();
+        const foreign = isForeign(sentence);
+        if (foreign && ($("foreign-voice").value === "browser" || !engine.multilingual)) {
+          // let queued audio finish, then read this sentence with the browser's own voice (not in the downloadable WAV)
+          await playback.finished();
+          if (playback.gen !== generation) { log("Stopped."); break; }
+          log(`#${i + 1} "${sentence.slice(0, 14)}${sentence.length > 14 ? "…" : ""}" is not Japanese -> browser voice`);
+          await speakBrowser(sentence, { rate: base.speed, pitchSt: base.pitch });
+          continue;
+        }
+        const synth = await engine.synth(sentence, { ...base, language: foreign ? "en" : "ja" });
+        const sampleRate = synth.sampleRate;
+        const shifted = await shiftVoice(synth.samples, sampleRate, base.pitch, base.formant);
+        const samples = await reduceBreathiness(shifted, sampleRate, base.breath);
+        if (playback.gen !== generation) { log("Stopped."); break; }
+        const ms = performance.now() - t1;
+        const dur = samples.length / sampleRate;
+        log(`#${i + 1} "${sentence.slice(0, 14)}${sentence.length > 14 ? "…" : ""}" ${(ms / 1000).toFixed(2)}s -> ${dur.toFixed(2)}s audio (RTF ${(ms / 1000 / dur).toFixed(2)})` +
+            (i === 0 ? ` | first audio after ${((performance.now() - t0) / 1000).toFixed(2)}s` : ""));
+        chunks.push(samples); rate = sampleRate;
+        await playback.add(samples, sampleRate);
+      }
+      if (chunks.length) {
+        log(`All synthesized in ${((performance.now() - t0) / 1000).toFixed(2)}s`);
+        const a = q(".download");
+        if (a.href) URL.revokeObjectURL(a.href);
+        a.href = URL.createObjectURL(encodeWav(chunks, rate));
+        a.download = `${id}.wav`;
+        a.hidden = false;
+      }
+      await playback.finished();
+    } catch (err) {
+      log(`ERROR synthesizing: ${err.message}`);
+      console.error(err);
+    } finally {
+      state.busy = false;
+      state.release?.();
+      q(".speak").disabled = false;
+    }
+  };
+  q(".speak").addEventListener("click", () => { unlockAudio($("text").value); card.speak($("text").value.trim()); });
+  return card;
+}
+
+// -------------------------------------------------------------- piper engine
+// Runs on the main thread (fast enough: RTF ~0.1). Yields between sentences.
+let piper = null;
+const piperEngine = {
+  multilingual: true, // the piper-plus models were trained on ja/en/zh/es/fr/pt
+  async load(model, log) {
+    piper?.dispose?.();
+    piper = null;
+    const modelUrl = new URL(model, location.href).href;
+    log(`Loading ${modelUrl} ...`);
+    piper = await PiperPlus.initialize({
+      model: modelUrl,
+      ort,
+      wasmG2pUrl: new URL(PATHS.piperRustWasm, location.href).href,
+      onProgress: ({ stage, progress, message }) => log(`[${stage}] ${message} (${Math.round(progress * 100)}%)`),
+    });
+    patchSpeakerEmbeddingDim(piper, log);
+    const inf = piper._config?.inference ?? {};
+    log(`Model defaults: length_scale=${inf.length_scale}, noise_scale=${inf.noise_scale}, noise_w=${inf.noise_w}`);
+  },
+  async synth(text, p) {
+    const audio = await piper.synthesize(text, {
+      language: p.language ?? "ja",
+      lengthScale: 1 / p.speed,
+      noiseScale: p.noise,
+      noiseW: p.noiseW,
+    });
+    return { samples: audio.samples, sampleRate: audio.sampleRate };
+  },
+};
+
+// -------------------------------------------------- sbv2 engine (Web Worker)
+// All heavy work (2 ONNX sessions, ~500MB) lives in a worker so the page never freezes.
+let worker = null;
+let nextId = 1;
+const pending = new Map();
+function callWorker(msg, onLog) {
+  worker ??= (() => {
+    const w = new Worker("./dist/sbv2-worker.js", { type: "module" });
+    w.onmessage = ({ data }) => {
+      const p = pending.get(data.id);
+      if (!p) return;
+      if (data.type === "log") p.onLog?.(data.msg);
+      else { pending.delete(data.id); data.type === "error" ? p.reject(new Error(data.message)) : p.resolve(data); }
+    };
+    w.onerror = (e) => { for (const p of pending.values()) p.reject(new Error(e.message || "worker crashed")); pending.clear(); };
+    return w;
+  })();
+  const id = nextId++;
+  return new Promise((resolve, reject) => {
+    pending.set(id, { resolve, reject, onLog });
+    worker.postMessage({ id, ...msg });
+  });
+}
+const sbv2Engine = {
+  async load(acousticFile, log) {
+    await callWorker({
+      type: "load",
+      acousticFile,
+      baseUrl: location.href,
+      acousticDir: "models/sbv2-tsukuyomi",
+      sharedDir: "models/sbv2-shared",
+    }, log);
+  },
+  async synth(text, p) {
+    const r = await callWorker({
+      type: "synth",
+      text,
+      scalars: { lengthScale: 1 / p.speed, noiseScale: p.noise, noiseScaleW: p.noiseW, sdpRatio: p.sdp },
+    });
+    return { samples: r.samples, sampleRate: r.sampleRate };
+  },
+};
+
+// The Style-BERT-VITS2 panel needs ~500 MB of local model files, so the hosted build leaves it out (see README).
+const cards = [setupCard("piper", piperEngine)];
+if (PATHS.sbv2) cards.push(setupCard("sbv2", sbv2Engine));
+else {
+  $("sbv2").hidden = true;
+  $("speak-both").hidden = true;
+  $("title-engines").textContent = "piper-plus";
+}
+
+$("preset").addEventListener("change", (e) => {
+  const [pitch, formant, breath] = e.target.value.split(",");
+  for (const id of ["piper", "sbv2"]) {
+    for (const [k, v] of [["pitch", pitch], ["formant", formant], ["breath", breath]]) {
+      const el = document.querySelector(`#${id} [data-p=${k}]`);
+      el.value = v;
+      el.dispatchEvent(new Event("input"));
+    }
+  }
+});
+
+// "Speak both" runs the engines sequentially (they'd fight over CPU otherwise).
+const both = $("speak-both");
+const refreshBoth = () => { both.disabled = !cards.every((c) => c.state.ready); };
+cards.forEach((c) => { c.onReady = refreshBoth; });
+both.addEventListener("click", async () => {
+  unlockAudio($("text").value); // must run synchronously inside the tap (iOS)
+  const text = $("text").value.trim();
+  if (!text) return;
+  both.disabled = true;
+  const gen = generation;
+  for (const c of cards) { if (gen !== generation) break; await c.speak(text); }
+  refreshBoth();
+});
+
+// Workaround for piper-plus 0.7.0 bugs: when a model declares `speaker_embedding`
+// and none is supplied, index.js feeds a hardcoded [1,192] zero vector and a
+// rank-1 `speaker_embedding_mask` ([1], mask = 0). The tsukuyomi model declares
+// a 256-dim embedding and a rank-2 mask, so ORT rejects both. Rebuild the
+// placeholders from the shapes the model actually declares.
+function patchSpeakerEmbeddingDim(p, log) {
+  const session = p._session;
+  const meta = session?.inputMetadata;
+  const shapeOf = (name) => (Array.isArray(meta) ? meta.find((m) => m.name === name) : meta?.[name])?.shape;
+  const embShape = shapeOf("speaker_embedding");
+  const maskShape = shapeOf("speaker_embedding_mask");
+  const dim = embShape?.[1];
+  if (!session || typeof dim !== "number" || dim <= 0) return;
+  const run = session.run.bind(session);
+  session.run = (feeds, ...rest) => {
+    const emb = feeds.speaker_embedding;
+    if (emb && emb.dims[1] !== dim) {
+      feeds = { ...feeds, speaker_embedding: new ort.Tensor("float32", new Float32Array(dim), [1, dim]) };
+    }
+    const mask = feeds.speaker_embedding_mask;
+    if (mask && maskShape && mask.dims.length !== maskShape.length) {
+      const dims = maskShape.map(() => 1);
+      feeds = { ...feeds, speaker_embedding_mask: new ort.Tensor("int64", mask.data, dims) };
+    }
+    return run(feeds, ...rest);
+  };
+  log(`Patched speaker_embedding placeholders (dim ${dim}, mask rank ${maskShape?.length ?? "n/a"}).`);
+}
+
+
+// ---------------------------------------------------- reading view (Sudachi)
+// Furigana + bunsetsu spacing + dictionary-form popover for whatever is in the shared textarea.
+// The analyzer holds ~400 MB, so its worker is stopped after IDLE_SECONDS without use and transparently reloaded
+// (from the IndexedDB cache, ~0.3 s) on the next edit. `?idle=5` in the URL shortens the delay for testing.
+const IDLE_MS = Number(new URLSearchParams(location.search).get("idle") ?? 60) * 1000;
+const reader = { worker: null, ready: false, wanted: false, loading: null, nextId: 1, pending: new Map(), seq: 0, timer: null, idleTimer: null };
+const readerStatus = (m) => { $("reader-status").textContent = m; };
+const readerLog = (m) => { const el = $("reader-log"); el.textContent += m + "\n"; el.scrollTop = el.scrollHeight; };
+
+function readerCall(msg, onLog) {
+  reader.worker ??= (() => {
+    const w = new Worker("./src/sudachi-worker.js?v=29", { type: "module" });
+    w.onmessage = ({ data }) => {
+      const p = reader.pending.get(data.id);
+      if (!p) return;
+      if (data.type === "log") p.onLog?.(data.msg);
+      else { reader.pending.delete(data.id); data.type === "error" ? p.reject(new Error(data.message)) : p.resolve(data); }
+    };
+    w.onerror = (e) => { for (const p of reader.pending.values()) p.reject(new Error(e.message || "worker crashed")); reader.pending.clear(); };
+    return w;
+  })();
+  const id = reader.nextId++;
+  return new Promise((resolve, reject) => { reader.pending.set(id, { resolve, reject, onLog }); reader.worker.postMessage({ id, ...msg }); });
+}
+
+function renderReader(lines, sentences = null) {
+  const out = $("reader-out");
+  out.replaceChildren();
+  for (const [idx, morphs] of lines.entries()) {
+    const line = document.createElement("div");
+    line.className = sentences ? "line study" : "line";
+    if (sentences?.[idx]) {
+      const say = document.createElement("button");
+      say.type = "button";
+      say.className = "say";
+      say.textContent = "🔊";
+      say.title = "Read this sentence aloud (click again to stop)";
+      say.setAttribute("aria-label", `Read aloud: ${sentences[idx]}`);
+      say._text = sentences[idx];
+      line.append(say);
+    }
+    if (morphs) {
+      for (const group of groupBunsetsu(morphs)) {
+        const span = document.createElement("span");
+        span.className = "bun";
+        span.tabIndex = 0;
+        for (const m of group.morphs) {
+          const part = document.createElement("span"); // main word(s) of the bunsetsu get their own colour
+          if (group.head.includes(m)) {
+            // colour by the part of speech of the main word (a leading prefix shares its word's colour)
+            const key = posColorKey(group.head[group.head.length - 1].pos[0]);
+            part.className = "head";
+            if (key) part.dataset.pos = key;
+          }
+          for (const seg of rubySegments(m.surface, m.reading)) {
+            if (seg.r) {
+              const ruby = document.createElement("ruby");
+              ruby.append(seg.t);
+              const rt = document.createElement("rt");
+              rt.textContent = seg.r;
+              ruby.append(rt);
+              part.append(ruby);
+            } else part.append(seg.t);
+          }
+          span.append(part);
+        }
+        span._group = group;
+        line.append(span);
+      }
+    }
+    out.append(line);
+  }
+}
+
+// ---- popover (built with DOM APIs / textContent only: the text is user-supplied)
+const pop = $("pop");
+let pinned = null;
+// The popover stays open briefly after the pointer leaves a phrase so the mouse can travel onto its buttons.
+let hideTimer = null;
+const cancelHide = () => { clearTimeout(hideTimer); hideTimer = null; };
+const scheduleHide = () => { if (pinned) return; cancelHide(); hideTimer = setTimeout(() => { if (!pinned) { pop.hidden = true; markShown(null); } }, 250); };
+const HAS_TEXT = /[\p{L}\p{N}]/u;
+/** The phrase as written, without trailing punctuation (so the voice doesn't pause on a trailing 、). */
+function phraseText(g) {
+  const ms = [...g.morphs];
+  while (ms.length > 1 && ["補助記号", "記号"].includes(ms[ms.length - 1].pos[0])) ms.pop();
+  return ms.map((m) => m.surface).join("");
+}
+
+let shownSpan = null; // phrase whose popover is open: keep its furigana visible even in hover-only mode
+function markShown(span) { shownSpan?.classList.remove("showing"); shownSpan = span; span?.classList.add("showing"); }
+
+function showPop(span) {
+  cancelHide();
+  markShown(span);
+  const g = span._group;
+  pop.replaceChildren();
+  const lbl = (t) => { const d = document.createElement("div"); d.className = "lbl"; d.textContent = t; return d; };
+  const dict = document.createElement("div");
+  dict.className = "dict";
+  dict.textContent = g.headDict;
+  pop.append(lbl("Dictionary form"), dict);
+  // 🔊 buttons: the main word (spoken in dictionary form, e.g. 歩い → 歩く) and the whole phrase as written
+  const actions = document.createElement("div");
+  actions.className = "pop-actions";
+  for (const [label, text] of [["Word", g.headDict], ["Phrase", phraseText(g)]]) {
+    if (!HAS_TEXT.test(text)) continue;
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "say";
+    b._text = text;
+    b.textContent = `🔊 ${label}: ${text}`;
+    b.title = `Speak "${text}"`;
+    actions.append(b);
+  }
+  const msg = document.createElement("div");
+  msg.className = "pop-msg";
+  pop.append(actions, msg);
+  const normHead = g.head.map((m) => m.norm || m.surface).join("");
+  if (normHead !== g.headDict) pop.append(lbl(`Normalized: ${normHead}`));
+  const ul = document.createElement("ul");
+  for (const m of g.morphs) {
+    const li = document.createElement("li");
+    li.append(`${m.surface} → ${m.dict || m.surface} `);
+    const pos = document.createElement("div");
+    pos.className = "pos";
+    pos.textContent = `${posLabel(m.pos)} — ${posLabelEn(m.pos)}`;
+    li.append(pos);
+    ul.append(li);
+  }
+  pop.append(lbl("Parts"), ul);
+  pop.hidden = false;
+  const r = span.getBoundingClientRect();
+  const left = Math.max(8, Math.min(window.scrollX + r.left, window.scrollX + document.documentElement.clientWidth - pop.offsetWidth - 8));
+  pop.style.left = `${left}px`;
+  pop.style.top = `${window.scrollY + r.bottom + 6}px`;
+}
+function hidePop() { cancelHide(); pop.hidden = true; markShown(null); pinned?.classList.remove("pinned"); pinned = null; }
+pop.addEventListener("mouseenter", cancelHide);
+pop.addEventListener("mouseleave", scheduleHide);
+pop.addEventListener("click", (e) => { const b = e.target.closest(".say"); if (b) speakStudy(b); });
+const readerOut = $("reader-out");
+readerOut.addEventListener("mouseover", (e) => { const s = e.target.closest(".bun"); if (s && !pinned) showPop(s); });
+readerOut.addEventListener("mouseout", (e) => { if (e.target.closest(".bun")) scheduleHide(); });
+readerOut.addEventListener("focusin", (e) => { const s = e.target.closest(".bun"); if (s && !pinned) showPop(s); });
+readerOut.addEventListener("click", (e) => {
+  const say = e.target.closest(".say");
+  if (say) { speakStudy(say); return; }
+  const s = e.target.closest(".bun");
+  if (!s) return hidePop();
+  if (pinned === s) return hidePop();
+  pinned?.classList.remove("pinned");
+  pinned = s;
+  s.classList.add("pinned");
+  showPop(s);
+  e.stopPropagation();
+});
+document.addEventListener("click", (e) => { if (pinned && !e.target.closest("#pop")) hidePop(); });
+document.addEventListener("keydown", (e) => { if (e.key === "Escape") hidePop(); });
+
+function stopReader() {
+  clearTimeout(reader.idleTimer);
+  reader.worker?.terminate();
+  reader.worker = null;
+  reader.ready = false;
+  for (const p of reader.pending.values()) p.reject(new Error("analyzer stopped"));
+  reader.pending.clear();
+  readerLog(`Analyzer stopped after ${IDLE_MS / 1000}s idle to free memory. It reloads from the cache on your next edit.`);
+  readerStatus("Analyzer stopped (idle) - edit the text to wake it. Hover or click a bunsetsu for its dictionary form.");
+}
+const armIdleTimer = () => { clearTimeout(reader.idleTimer); reader.idleTimer = setTimeout(stopReader, IDLE_MS); };
+
+// Load the wasm into a fresh worker (downloads on the very first run, IndexedDB cache afterwards).
+function startReader() {
+  reader.loading ??= (async () => {
+    try {
+      readerStatus("Loading analyzer...");
+      const t0 = performance.now();
+      await readerCall({ type: "load", manifestUrl: new URL(PATHS.sudachiManifest, location.href).href, rawUrl: new URL(PATHS.sudachiRaw, location.href).href }, readerLog);
+      reader.ready = true;
+      readerLog(`Ready (${((performance.now() - t0) / 1000).toFixed(1)}s).`);
+      readerStatus("Analyzer ready. Hover or click a bunsetsu for its dictionary form.");
+    } finally { reader.loading = null; }
+  })();
+  return reader.loading;
+}
+
+async function refreshReader() {
+  if (!reader.wanted) return; // user hasn't clicked "Load analyzer" yet
+  const mySeq = ++reader.seq;
+  try {
+    if (!reader.ready) await startReader();
+    if (mySeq !== reader.seq) return;
+    // Study mode analyzes one sentence per line so every line gets its own 🔊 button.
+    const sentences = $("study-mode").checked ? splitStudySentences($("text").value) : null;
+    const { lines } = await readerCall({ type: "analyze", text: sentences ? sentences.join("\n") : $("text").value });
+    if (mySeq !== reader.seq) return; // a newer edit superseded this one
+    hidePop();
+    renderReader(lines, sentences);
+    armIdleTimer();
+  } catch (err) { if (mySeq === reader.seq) { readerLog(`ERROR analyzing: ${err.message}`); console.error(err); } }
+}
+$("text").addEventListener("input", () => { clearTimeout(reader.timer); reader.timer = setTimeout(refreshReader, 300); });
+
+$("reader-load").addEventListener("click", async () => {
+  const btn = $("reader-load");
+  btn.disabled = true;
+  reader.wanted = true;
+  try {
+    // Ask the browser not to evict the cached dictionary (Safari otherwise purges after ~7 days without a visit).
+    try { readerLog(`Persistent storage: ${(await navigator.storage?.persist?.()) ? "granted" : "not granted (cache may be evicted; on iOS add the page to the Home Screen)"}`); } catch {}
+    await startReader();
+    await refreshReader();
+  } catch (err) {
+    readerLog(`ERROR loading: ${err.message}`);
+    console.error(err);
+  } finally { btn.disabled = false; }
+});
+
+
+// ---- study mode: 🔊 per sentence (uses piper if loaded, else Style-Bert-VITS2, with that panel's voice settings)
+let studyCurrent = null;
+async function speakStudy(btn) {
+  unlockAudio(btn._text); // synchronously inside the tap (iOS)
+  const card = cards.find((c) => c.state.ready); // cards = [piper, sbv2]
+  if (!card) {
+    const m = "Load a voice model first (Load model in the piper-plus panel), then press 🔊.";
+    readerStatus(m);
+    const box = btn.closest("#pop")?.querySelector(".pop-msg");
+    if (box) box.textContent = m;
+    return;
+  }
+  if (studyCurrent === btn && card.state.busy) { stopAudio(); return; } // second click = stop
+  studyCurrent?.classList.remove("speaking");
+  studyCurrent = btn;
+  btn.classList.add("speaking");
+  try { await card.speak(btn._text, { interrupt: true }); }
+  finally { if (studyCurrent === btn) { btn.classList.remove("speaking"); studyCurrent = null; } }
+}
+
+// ---- preferences (remembered per browser; storage may be unavailable, e.g. private mode)
+const pref = {
+  get: (k, d) => { try { return localStorage.getItem(k) ?? d; } catch { return d; } },
+  set: (k, v) => { try { localStorage.setItem(k, v); } catch {} },
+};
+$("study-mode").checked = pref.get("studyMode", "0") === "1";
+$("study-mode").addEventListener("change", () => { pref.set("studyMode", $("study-mode").checked ? "1" : "0"); refreshReader(); });
+$("color-mode").value = pref.get("colorMode", "pos");
+const applyColorMode = () => { $("reader").dataset.color = $("color-mode").value; pref.set("colorMode", $("color-mode").value); };
+$("color-mode").addEventListener("change", applyColorMode);
+applyColorMode();
+
+$("furi-always").checked = pref.get("furiAlways", "1") === "1";
+const applyFuri = () => { $("reader").dataset.furi = $("furi-always").checked ? "always" : "hover"; pref.set("furiAlways", $("furi-always").checked ? "1" : "0"); };
+$("furi-always").addEventListener("change", applyFuri);
+applyFuri();
+
+$("foreign-voice").value = pref.get("foreignVoice", "browser");
+$("foreign-voice").addEventListener("change", () => pref.set("foreignVoice", $("foreign-voice").value));

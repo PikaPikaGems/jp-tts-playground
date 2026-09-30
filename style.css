@@ -1,0 +1,86 @@
+:root { color-scheme: light dark; font-family: system-ui, sans-serif; }
+body { margin: 0; padding: 24px 16px; }
+main { max-width: 1100px; margin: 0 auto; display: grid; gap: 8px; }
+h1 { font-size: 1.3rem; margin: 0 0 8px; }
+h2 { font-size: 1.05rem; margin: 0; }
+h2 small { font-weight: normal; opacity: .6; margin-left: 6px; }
+label { font-size: .85rem; }
+textarea { font: inherit; font-size: 1.1rem; padding: 8px; width: 100%; box-sizing: border-box; }
+select { font: inherit; padding: 6px; }
+button { font: inherit; padding: 8px 16px; cursor: pointer; }
+button:disabled { cursor: not-allowed; opacity: .5; }
+.row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+.cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 16px; margin-top: 8px; }
+.card { border: 1px solid rgba(127,127,127,.4); border-radius: 8px; padding: 14px; display: grid; gap: 10px; align-content: start; }
+.sliders { display: grid; gap: 6px; }
+.sliders label { display: grid; grid-template-columns: 1fr 3.2em 1fr; gap: 8px; align-items: center; }
+.sliders output { font-variant-numeric: tabular-nums; text-align: right; }
+.sliders .reset { justify-self: start; padding: 3px 10px; font-size: .8rem; }
+.log { background: rgba(127,127,127,.15); padding: 8px; height: 8em; overflow: auto; white-space: pre-wrap; font-size: .75rem; margin: 0; }
+.ctl { display: grid; gap: 1px; }
+.hint { font-size: .72rem; opacity: .6; line-height: 1.3; }
+
+/* ---- reading view ---- */
+.reader-out { font-size: 1.5rem; line-height: 2.6; padding: 6px 4px; min-height: 3em; }
+.reader-out .line { margin: 0; }
+.reader-out .line:empty::after { content: "\00a0"; }
+.bun { display: inline-block; margin-right: .7em; padding: 0 .1em; border-radius: 6px; cursor: help; white-space: nowrap; outline: none; }
+.bun:hover, .bun:focus, .bun.pinned { background: rgba(80,140,255,.22); }
+.bun rt { font-size: .45em; opacity: .85; }
+#pop { position: absolute; z-index: 10; max-width: 320px; background: Canvas; color: CanvasText; border: 1px solid rgba(127,127,127,.6); border-radius: 8px; padding: 10px 12px; box-shadow: 0 6px 24px rgba(0,0,0,.35); font-size: .85rem; line-height: 1.4; }
+#pop[hidden] { display: none; }
+#pop .dict { font-size: 1.4rem; font-weight: 600; }
+#pop .lbl { opacity: .6; font-size: .72rem; }
+#pop ul { margin: 6px 0 0; padding-left: 1.1em; }
+#pop li { margin: 1px 0; }
+#pop .pos { opacity: .6; font-size: .72rem; }
+
+#pop li .pos { display: block; }
+#pop { max-width: 360px; }
+
+/* part-of-speech colours for the main word of each bunsetsu (light theme first, dark below) */
+:root {
+  --pos-noun: #0b62c4; --pos-pronoun: #0f766e; --pos-verb: #1a7f37; --pos-adj: #b45309; --pos-adjnoun: #8a6d00;
+  --pos-adverb: #7e3ac2; --pos-adnominal: #b3237a; --pos-conj: #4b4fb3; --pos-interj: #cf222e;
+}
+@media (prefers-color-scheme: dark) { :root {
+  --pos-noun: #6cb6ff; --pos-pronoun: #5eead4; --pos-verb: #7ee787; --pos-adj: #ffa657; --pos-adjnoun: #e3b341;
+  --pos-adverb: #d2a8ff; --pos-adnominal: #ff9bce; --pos-conj: #b8c0ff; --pos-interj: #ff7b72;
+} }
+.pos-noun { color: var(--pos-noun); } .pos-pronoun { color: var(--pos-pronoun); } .pos-verb { color: var(--pos-verb); }
+.pos-adj { color: var(--pos-adj); } .pos-adjnoun { color: var(--pos-adjnoun); } .pos-adverb { color: var(--pos-adverb); }
+.pos-adnominal { color: var(--pos-adnominal); } .pos-conj { color: var(--pos-conj); } .pos-interj { color: var(--pos-interj); }
+.legend { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: .78rem; margin: 2px 0; }
+.legend span::before { content: "●"; margin-right: 4px; }
+#unsupported { background: #b42318; color: #fff; padding: 12px 14px; border-radius: 8px; font-size: .95rem; }
+
+/* colour modes: #reader[data-color] = none | head | pos */
+:root { --head: #b45f00; }
+@media (prefers-color-scheme: dark) { :root { --head: #ffe98a; } }
+#reader[data-color="head"] .head { color: var(--head); }
+#reader[data-color="pos"] .head[data-pos="noun"] { color: var(--pos-noun); }
+#reader[data-color="pos"] .head[data-pos="pronoun"] { color: var(--pos-pronoun); }
+#reader[data-color="pos"] .head[data-pos="verb"] { color: var(--pos-verb); }
+#reader[data-color="pos"] .head[data-pos="adj"] { color: var(--pos-adj); }
+#reader[data-color="pos"] .head[data-pos="adjnoun"] { color: var(--pos-adjnoun); }
+#reader[data-color="pos"] .head[data-pos="adverb"] { color: var(--pos-adverb); }
+#reader[data-color="pos"] .head[data-pos="adnominal"] { color: var(--pos-adnominal); }
+#reader[data-color="pos"] .head[data-pos="conj"] { color: var(--pos-conj); }
+#reader[data-color="pos"] .head[data-pos="interj"] { color: var(--pos-interj); }
+.legend { display: none; }
+#reader[data-color="pos"] .legend { display: flex; }
+.switch { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+.say { font-size: .9rem; line-height: 1; padding: 4px 8px; margin-right: .6em; vertical-align: middle; border-radius: 999px; cursor: pointer; }
+.say.speaking { background: rgba(80,140,255,.4); }
+.reader-out .line.study { padding: 2px 0; border-bottom: 1px dashed rgba(127,127,127,.25); }
+
+/* furigana visibility: data-furi = always | hover (hover/focus/tapped phrase reveals it) */
+#reader[data-furi="hover"] .reader-out rt { opacity: 0; transition: opacity .12s; }
+#reader[data-furi="hover"] .bun:hover rt, #reader[data-furi="hover"] .bun:focus rt, #reader[data-furi="hover"] .bun.pinned rt, #reader[data-furi="hover"] .bun.showing rt { opacity: 1; }
+#pop .pop-actions { display: flex; gap: 6px; margin: 6px 0 4px; }
+#pop .pop-actions .say { margin: 0; padding: 4px 8px; max-width: 165px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; border-radius: 6px; font-size: .8rem; }
+#pop .pop-msg { color: #f0883e; font-size: .75rem; }
+#pop .pop-msg:empty { display: none; }
+
+.credits { font-size: .85rem; opacity: .8; border-top: 1px solid rgba(127,127,127,.35); margin-top: 16px; padding-top: 8px; }
+.credits p { margin: 6px 0; line-height: 1.5; }
