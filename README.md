@@ -67,31 +67,40 @@ Notes:
 ## Build and deploy the static site
 
 ```bash
-npm run build:deploy     # writes deploy/ : the page, vendored libraries, voice models, chunked Sudachi
+npm run build:deploy     # writes deploy/ : the page, vendored libraries, voice models, everything split into parts
 npm run serve:deploy     # test exactly what will be published at http://localhost:8090
 ```
 
 `deploy/` is a self-contained static site. It contains no `node_modules` and no Style-BERT-VITS2 files; the page
 detects this (`src/paths.js`) and hides that panel.
 
-**How the big Sudachi file is handled.** The Sudachi WebAssembly binary (dictionary included) is 118 MB, over GitHub's
-100 MB push limit. The build gzips it (42 MiB) and cuts it into parts of at most 20 MiB plus a `manifest.json`. The
-page downloads the parts, unzips them in a stream, checks the SHA-256 from the manifest, and stores the result in
-IndexedDB, so later visits download nothing.
+**How big files are handled.** Static hosts limit file size (GitHub blocks pushes over 100 MB, Cloudflare Pages
+rejects files over 25 MiB), so the build splits every large file into parts of at most 20 MiB plus a `manifest.json`:
+
+| File | Size | Stored as |
+|---|---|---|
+| Sudachi binary (dictionary inside) | 117.5 MiB | 3 gzip parts (42 MiB) |
+| Rust phonemizer (OpenJTalk dictionary inside) | 57.3 MiB | 2 gzip parts (20.5 MiB) |
+| Voice models (Tsukuyomi, CSS10, Mera) | 37.8 MiB each | 2 raw parts each (they barely compress) |
+| onnxruntime | 13.6 MiB | unsplit: the WebAssembly-only build is used instead of the 27 MiB WebGPU one |
+
+At run time `src/chunks.js` downloads the parts, unzips them in a stream, checks the SHA-256 from the manifest and
+keeps the result in IndexedDB, so later visits download nothing. The build **fails if any file exceeds 25 MiB**.
 
 ### GitHub Pages
 
 This repository publishes `deploy/` from the `gh-pages` branch (Settings → Pages → Deploy from a branch → `gh-pages`,
-`/ (root)`). The `main` branch holds only source; large files are fetched with `npm run fetch-assets`.
+`/ (root)`). The `main` branch holds only source; large files come from `npm run fetch-assets`.
 
-To redeploy after a change: `npm run build:deploy`, then push the contents of `deploy/` to the `gh-pages` branch.
+```bash
+npm run build:deploy && npm run publish:gh-pages    # clones gh-pages, replaces its files, commits, pushes
+```
 
 ### Cloudflare Pages
 
-Cloudflare Pages allows 25 MiB per file. After `npm run build:deploy`, these files are over that limit (fine on GitHub
-Pages): `vendor/piper-plus/dist/rust-wasm/piper_plus_wasm_bg.wasm` (57 MiB), the three `models/*/model.onnx` files
-(~38 MiB each) and `vendor/ort/ort-wasm-simd-threaded.jsep.wasm` (27 MiB). Options are to split them the same way as
-Sudachi, or to serve them from another host with CORS enabled.
+The build already respects Cloudflare's 25 MiB per-file limit (and stays far below its 20,000-file limit), so the
+`deploy/` folder can be published as-is, for example with `npx wrangler pages deploy deploy`, or by pointing a Pages
+project at the `gh-pages` branch with no build command and `/` as the output directory. (Not deployed there yet.)
 
 ## iPhone / iPad notes
 
@@ -108,12 +117,14 @@ Sudachi, or to serve them from another host with CORS enabled.
 index.html, app.js, style.css     the page
 src/furigana.js                   bunsetsu grouping, furigana alignment, sentence splitting (pure functions)
 src/voicefx.js                    pitch / formant shifting + breathiness filter
-src/sudachi-worker.js             Web Worker: loads Sudachi (chunks / IndexedDB) and tokenises
+src/chunks.js                     loads split files: parts -> gunzip -> SHA-256 check -> IndexedDB cache
+src/sudachi-worker.js             Web Worker: loads Sudachi and tokenises
 src/sudachi-glue.js               wasm-bindgen glue for the Sudachi binary
 src/paths.js                      where libraries and models live (dev vs. deploy)
 src/sbv2-*.js, build.mjs          optional Style-BERT-VITS2 worker (local only)
 scripts/fetch-assets.mjs          downloads voice models, Sudachi, optionally Style-BERT-VITS2
-scripts/build-deploy.mjs          builds deploy/
+scripts/build-deploy.mjs          builds deploy/ (splits big files)
+scripts/publish-gh-pages.mjs      pushes deploy/ to the gh-pages branch
 serve.py                          tiny static server: python3 serve.py [port] [directory]
 ```
 

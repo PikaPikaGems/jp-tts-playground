@@ -2,7 +2,9 @@
 // models/). `npm run build:deploy` writes a different copy of this file into deploy/ (vendor/ paths, sbv2: false).
 export const PATHS = {
   ortDist: "./node_modules/onnxruntime-web/dist/",
-  piperRustWasm: "./node_modules/piper-plus/dist/rust-wasm/piper_plus_wasm.js",
+  piperRustWasm: "./node_modules/piper-plus/dist/rust-wasm/piper_plus_wasm.js", // wasm-bindgen glue (+ _bg.wasm next to it in dev)
+  piperRustManifest: null, // deploy: manifest of the gzip-split phonemizer binary
+  chunked: false, // deploy: voice models are split into parts (see chunks.js)
   rubberbandWasm: "./node_modules/rubberband-wasm/dist/rubberband.wasm",
   sudachiManifest: "models/sudachi/manifest.json", // chunked + gzipped build (optional in dev)
   sudachiRaw: "models/sudachi/sudachi.wasm", // fallback: single raw file

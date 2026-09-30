@@ -11,7 +11,7 @@
     "imports": {
       "piper-plus": "./node_modules/piper-plus/src/index.js",
       "@piper-plus/g2p": "./node_modules/@piper-plus/g2p/src/index.js",
-      "onnxruntime-web": "./node_modules/onnxruntime-web/dist/ort.min.mjs",
+      "onnxruntime-web": "./node_modules/onnxruntime-web/dist/ort.wasm.min.mjs",
       "rubberband-wasm": "./node_modules/rubberband-wasm/dist/index.esm.js"
     }
   }
@@ -32,7 +32,7 @@
     })();
   </script>
   <main>
-    <h1>日本語 TTS <span id="title-engines">— piper-plus vs Style-BERT-VITS2</span> <small style="font-weight:normal;opacity:.5;font-size:.7em">build 29</small></h1>
+    <h1>日本語 TTS <span id="title-engines">— piper-plus vs Style-BERT-VITS2</span> <small style="font-weight:normal;opacity:.5;font-size:.7em">build 30</small></h1>
 
     <label for="text">Text (shared by both engines)</label>
     <textarea id="text" rows="5">こんにちは、今日はいい天気ですね。</textarea>
@@ -184,6 +184,6 @@
     </footer>
   </main>
   <div id="pop" role="tooltip" hidden></div>
-  <script type="module" src="app.js?v=29"></script>
+  <script type="module" src="app.js?v=30"></script>
 </body>
 </html>

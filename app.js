@@ -1,8 +1,9 @@
 import { PiperPlus } from "piper-plus";
 import * as ort from "onnxruntime-web";
 import { PATHS } from "./src/paths.js";
-import { shiftVoice, reduceBreathiness } from "./src/voicefx.js?v=29";
-import { groupBunsetsu, rubySegments, posLabel, posLabelEn, posColorKey, splitStudySentences } from "./src/furigana.js?v=29";
+import { loadChunked } from "./src/chunks.js";
+import { shiftVoice, reduceBreathiness } from "./src/voicefx.js?v=30";
+import { groupBunsetsu, rubySegments, posLabel, posLabelEn, posColorKey, splitStudySentences } from "./src/furigana.js?v=30";
 
 const $ = (id) => document.getElementById(id);
 
@@ -225,6 +226,22 @@ function setupCard(id, engine) {
 // -------------------------------------------------------------- piper engine
 // Runs on the main thread (fast enough: RTF ~0.1). Yields between sentences.
 let piper = null;
+
+// The Rust phonemizer (OpenJTalk dictionary inside) is 57 MiB, so the hosted build ships it gzipped in parts and hands the
+// bytes to piper-plus through its `wasmLoader` hook. Loaded once per page, whichever voice is selected.
+let rustModulePromise = null;
+function loadRustPhonemizer(log) {
+  rustModulePromise ??= (async () => {
+    const [mod, bytes] = await Promise.all([
+      import(new URL(PATHS.piperRustWasm, location.href).href),
+      loadChunked({ manifestUrl: new URL(PATHS.piperRustManifest, location.href).href, label: "Phonemizer", log }),
+    ]);
+    await mod.default({ module_or_path: bytes });
+    return mod;
+  })().catch((e) => { rustModulePromise = null; throw e; });
+  return rustModulePromise;
+}
+
 const piperEngine = {
   multilingual: true, // the piper-plus models were trained on ja/en/zh/es/fr/pt
   async load(model, log) {
@@ -232,10 +249,18 @@ const piperEngine = {
     piper = null;
     const modelUrl = new URL(model, location.href).href;
     log(`Loading ${modelUrl} ...`);
+    // Hosted build: the voice model is split into parts. piper-plus calls ort.InferenceSession.create(<url>) itself,
+    // so hand it an ort whose create() receives the joined, verified bytes for that URL instead.
+    let ortForPiper = ort;
+    if (PATHS.chunked) {
+      const bytes = await loadChunked({ manifestUrl: new URL(model.replace(/[^/]+$/, "manifest.json"), location.href).href, label: "Voice model", log });
+      ortForPiper = { ...ort, InferenceSession: { create: (path, opts) => ort.InferenceSession.create(path === modelUrl ? bytes : path, opts) } };
+    }
     piper = await PiperPlus.initialize({
       model: modelUrl,
-      ort,
+      ort: ortForPiper,
       wasmG2pUrl: new URL(PATHS.piperRustWasm, location.href).href,
+      wasmLoader: PATHS.piperRustManifest ? () => loadRustPhonemizer(log) : undefined,
       onProgress: ({ stage, progress, message }) => log(`[${stage}] ${message} (${Math.round(progress * 100)}%)`),
     });
     patchSpeakerEmbeddingDim(piper, log);
@@ -371,7 +396,7 @@ const readerLog = (m) => { const el = $("reader-log"); el.textContent += m + "\n
 
 function readerCall(msg, onLog) {
   reader.worker ??= (() => {
-    const w = new Worker("./src/sudachi-worker.js?v=29", { type: "module" });
+    const w = new Worker("./src/sudachi-worker.js?v=30", { type: "module" });
     w.onmessage = ({ data }) => {
       const p = reader.pending.get(data.id);
       if (!p) return;
