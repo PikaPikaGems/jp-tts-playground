@@ -1,0 +1,20 @@
+{
+  "name": "model.onnx",
+  "version": "1",
+  "source": "models/tsukuyomi (see NOTICE.md)",
+  "compression": "none",
+  "rawSize": 39652717,
+  "rawSha256": "5289e9b6eaf21080803b7fe1c4dc85b5491d4c216121207a41df18dd5f68e5d7",
+  "parts": [
+    {
+      "file": "model.onnx.part1",
+      "size": 20971520,
+      "sha256": "90024ea6395986cc016d5b5631ea15622ff08a5d7a08720881dfe4ae03374624"
+    },
+    {
+      "file": "model.onnx.part2",
+      "size": 18681197,
+      "sha256": "5475d2c94b64a433e44c5e74657e7c84c1e303e52a1c238fac056a9a142dbe9d"
+    }
+  ]
+}

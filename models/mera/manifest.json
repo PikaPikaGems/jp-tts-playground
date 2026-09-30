@@ -1,0 +1,20 @@
+{
+  "name": "model.onnx",
+  "version": "1",
+  "source": "models/mera (see NOTICE.md)",
+  "compression": "none",
+  "rawSize": 39414322,
+  "rawSha256": "97952c17fd60d47c4db2a6bf3903184df2054b6fa97396c971102bc60a9f135f",
+  "parts": [
+    {
+      "file": "model.onnx.part1",
+      "size": 20971520,
+      "sha256": "758ddd71456c09abc89ea2eb18eba3cb2f54899bc04f13bea5c258fb60adcfcf"
+    },
+    {
+      "file": "model.onnx.part2",
+      "size": 18442802,
+      "sha256": "ae056178c645353eda85e10e78094cde00677da6170ac86e44f1aeaa7a6bd3ae"
+    }
+  ]
+}
