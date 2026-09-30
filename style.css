@@ -84,3 +84,5 @@ button:disabled { cursor: not-allowed; opacity: .5; }
 
 .credits { font-size: .85rem; opacity: .8; border-top: 1px solid rgba(127,127,127,.35); margin-top: 16px; padding-top: 8px; }
 .credits p { margin: 6px 0; line-height: 1.5; }
+
+.reader-out .line.study .say + .say { margin-left: -.3em; }

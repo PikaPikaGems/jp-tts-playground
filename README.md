@@ -11,11 +11,13 @@ and shows it with furigana, bunsetsu grouping, part-of-speech colours and a dict
 - **Speak** with [piper-plus](https://github.com/ayutaz/piper-plus) voices (ONNX, runs in WebAssembly): Tsukuyomi-chan,
   CSS10, Mera-chan. Speed, expressiveness and rhythm sliders.
 - **Voice presets**: independent *pitch* and *voice size (formant)* shifting (Rubber Band), so one voice can be made
-  to sound like a young woman, a mature woman, a man, and so on. Plus a *breathiness reduction* filter.
+  to sound like a young woman, a mature woman, a man, and so on. Plus a *breathiness reduction* filter and an
+  experimental alternative shifting method (off by default). Note: the shifting adds some artifacts (the noise level
+  drops by about 2 dB versus the unshifted voice), so large shifts sound less clean than the original.
 - **Reading view** ([Sudachi](https://github.com/WorksApplications/sudachi.rs) in WebAssembly): furigana on kanji
   (always, or on hover/tap), a space between bunsetsu, main words coloured by part of speech, and a popover with the
   dictionary form, the parts of each phrase (Japanese and English tag names) and 🔊 buttons for the word and the phrase.
-- **Study mode**: one line per sentence, each with a 🔊 button.
+- **Study mode**: one line per sentence, each with a 🔊 button (selected speed) and a 🐢 button (slow: 0.75x the selected speed).
 - **English text** is detected and read with the browser's built-in voice (the Japanese models mispronounce English).
 - Optional, **local only**: a [Style-BERT-VITS2](https://github.com/litagin02/Style-Bert-VITS2) panel for comparison
   (needs ~500 MB of model files and 1.5 GB+ of RAM, so it is not part of the hosted site).
@@ -130,8 +132,11 @@ serve.py                          tiny static server: python3 serve.py [port] [d
 
 ## Credits and licences
 
-See [NOTICE.md](NOTICE.md). The voice models and libraries have their own licences, and the **Tsukuyomi-chan** voice
-requires a credit line (shown at the bottom of the page). Rubber Band is GPL-licensed, which affects how this project
-can be licensed.
+This project's own code is licensed under the **GNU Affero General Public License v3.0 or later** (`AGPL-3.0-or-later`,
+see [LICENSE](LICENSE)). In short: you may use, modify and share it, including commercially, but anyone who distributes
+a modified version - or lets users interact with one over a network - must offer those users the complete source under the
+same licence. The hosted site links to this repository for that reason.
 
-**This repository's own code has no licence yet** (so, by default, all rights are reserved) - one will be added.
+The AGPL covers this project's code only. The voice models, dictionaries and libraries it uses keep their own licences
+and terms - see [NOTICE.md](NOTICE.md). In particular the **Tsukuyomi-chan** voice requires a credit line (shown at the
+bottom of the page), and Rubber Band is GPL-licensed (compatible with AGPL-3.0-or-later).

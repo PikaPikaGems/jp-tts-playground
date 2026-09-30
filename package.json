@@ -24,5 +24,10 @@
     "esbuild": "^0.28.2"
   },
   "private": true,
-  "type": "commonjs"
+  "type": "commonjs",
+  "license": "AGPL-3.0-or-later",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/PikaPikaGems/jp-tts-playground.git"
+  }
 }

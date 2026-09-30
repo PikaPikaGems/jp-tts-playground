@@ -1,5 +1,8 @@
 # Third-party components and credits
 
+This project's own code is licensed under AGPL-3.0-or-later (see [LICENSE](LICENSE)). The components below keep their own
+licences and terms.
+
 This project bundles or loads the following third-party software and data. Each keeps its own licence; the summaries
 below are provided for convenience and are **not legal advice** - check the linked sources before reusing anything.
 

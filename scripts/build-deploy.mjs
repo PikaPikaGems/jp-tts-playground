@@ -101,6 +101,7 @@ export const PATHS = {
 `);
 write(".nojekyll", "");
 copy(path.join(ROOT, "NOTICE.md"), path.join(OUT, "NOTICE.md"));
+copy(path.join(ROOT, "LICENSE"), path.join(OUT, "LICENSE"));
 
 // ---- 2. vendored libraries (only what the page requests at runtime) ------------------------------------------------------
 const piper = need(path.join(NM, "piper-plus"), "Run `npm install`.");
