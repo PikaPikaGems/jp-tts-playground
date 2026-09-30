@@ -128,6 +128,7 @@ scripts/fetch-assets.mjs          downloads voice models, Sudachi, optionally St
 scripts/build-deploy.mjs          builds deploy/ (splits big files)
 scripts/publish-gh-pages.mjs      pushes deploy/ to the gh-pages branch
 serve.py                          tiny static server: python3 serve.py [port] [directory]
+packages/jp-analyzer/             work in progress: reusable Sudachi package with lower memory use (see its API.md)
 ```
 
 ## Credits and licences

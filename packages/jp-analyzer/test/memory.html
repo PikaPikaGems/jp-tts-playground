@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sudachi Memory Test</title>
+<style>
+  :root { --bg: #fff; --fg: #1a1a1a; --muted: #666; --border: #ddd; --accent: #2563eb; --ok: #15803d; --bad: #b91c1c; --code: #f4f4f5; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #111; --fg: #eee; --muted: #999; --border: #333; --accent: #60a5fa; --ok: #4ade80; --bad: #f87171; --code: #1c1c1f; }
+  }
+  body { background: var(--bg); color: var(--fg); font: 15px/1.5 -apple-system, system-ui, sans-serif; margin: 0 auto; padding: 16px; max-width: 720px; }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  p.lead { color: var(--muted); margin: 0 0 16px; }
+  fieldset { border: 1px solid var(--border); border-radius: 8px; margin: 0 0 16px; padding: 12px; }
+  legend { font-weight: 600; padding: 0 4px; }
+  button { font: inherit; padding: 8px 12px; margin: 4px 4px 4px 0; border-radius: 6px; border: 1px solid var(--border); background: var(--code); color: var(--fg); }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  textarea { font: inherit; width: 100%; box-sizing: border-box; min-height: 60px; background: var(--bg); color: var(--fg); border: 1px solid var(--border); border-radius: 6px; padding: 8px; }
+  dl { display: grid; grid-template-columns: max-content 1fr; gap: 2px 12px; margin: 8px 0 0; }
+  dt { color: var(--muted); }
+  dd { margin: 0; font-variant-numeric: tabular-nums; }
+  pre { background: var(--code); border-radius: 6px; padding: 8px; overflow-x: auto; white-space: pre-wrap; font-size: 13px; max-height: 240px; margin: 8px 0 0; }
+  .ok { color: var(--ok); } .bad { color: var(--bad); }
+  ol { padding-left: 20px; }
+</style>
+</head>
+<body>
+<h1>Sudachi memory test</h1>
+<p class="lead">Compares the current way the playground loads Sudachi ("old") with the jp-analyzer way ("new"). Load one,
+measure, press <b>Stop worker</b>, then try the other.</p>
+
+<fieldset>
+  <legend>1. Load</legend>
+  <button class="primary" id="load-new">Load: new method</button>
+  <button id="load-old">Load: old method</button>
+  <button id="stop">Stop worker (free memory)</button>
+  <button id="clear">Delete cached dictionaries</button>
+  <dl>
+    <dt>Method</dt><dd id="m-method">-</dd>
+    <dt>Status</dt><dd id="m-status">not loaded</dd>
+    <dt>Download</dt><dd id="m-download">-</dd>
+    <dt>Load time</dt><dd id="m-time">-</dd>
+    <dt>From cache</dt><dd id="m-cache">-</dd>
+    <dt>Wasm memory</dt><dd id="m-mem">-</dd>
+  </dl>
+</fieldset>
+
+<fieldset>
+  <legend>2. Analyze</legend>
+  <textarea id="text">吾輩は猫である。名前はまだ無い。</textarea>
+  <button id="analyze">Analyze</button>
+  <pre id="out"></pre>
+</fieldset>
+
+<fieldset>
+  <legend>How to measure on an iPhone</legend>
+  <ol>
+    <li>iPhone: Settings → Apps → Safari → Advanced → turn on <b>Web Inspector</b>.</li>
+    <li>Connect the iPhone to the Mac with a cable. On the Mac: Safari → Settings → Advanced → <b>Show features for web developers</b>.</li>
+    <li>Open this page on the iPhone. On the Mac: Safari → Develop → (your iPhone) → this page.</li>
+    <li>In Web Inspector: <b>Timelines</b> → enable <b>Memory</b> → press record (●).</li>
+    <li>On the iPhone, press a Load button and wait for "ready". Stop recording and note the <b>peak</b> and the level after loading.</li>
+    <li>Press <b>Stop worker</b>, reload the page, and repeat with the other method.</li>
+  </ol>
+  <p>If the page reloads by itself or shows "A problem repeatedly occurred", that method crashed the tab. Please note which one.</p>
+</fieldset>
+
+<fieldset>
+  <legend>Log</legend>
+  <pre id="log"></pre>
+</fieldset>
+
+<script type="module" src="./memory.js"></script>
+</body>
+</html>

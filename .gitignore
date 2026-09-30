@@ -4,3 +4,4 @@ deploy/
 dist/
 .DS_Store
 *.log
+packages/jp-analyzer/test/dict/
