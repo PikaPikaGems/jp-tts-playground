@@ -88,3 +88,21 @@ export async function reduceBreathiness(samples, sampleRate, amount) {
   src.start();
   return (await off.startRendering()).getChannelData(0).slice();
 }
+
+/**
+ * Clean resampling by `ratio` (playbackRate semantics): ratio < 1 lowers pitch AND formants by that factor and makes the
+ * audio longer by 1/ratio. Used for the "clean" part of a voice change - it adds no phase-vocoder artifacts, unlike
+ * Rubber Band. The caller compensates the duration by asking the voice model to speak faster by 1/ratio first.
+ */
+export async function resampleBy(samples, sampleRate, ratio) {
+  if (Math.abs(ratio - 1) < 1e-6) return samples;
+  const off = new OfflineAudioContext(1, Math.ceil(samples.length / ratio), sampleRate);
+  const buf = off.createBuffer(1, samples.length, sampleRate);
+  buf.copyToChannel(samples, 0);
+  const src = off.createBufferSource();
+  src.buffer = buf;
+  src.playbackRate.value = ratio;
+  src.connect(off.destination);
+  src.start();
+  return (await off.startRendering()).getChannelData(0).slice();
+}

@@ -2,8 +2,8 @@ import { PiperPlus } from "piper-plus";
 import * as ort from "onnxruntime-web";
 import { PATHS } from "./src/paths.js";
 import { loadChunked } from "./src/chunks.js";
-import { shiftVoice, reduceBreathiness } from "./src/voicefx.js?v=30";
-import { groupBunsetsu, rubySegments, posLabel, posLabelEn, posColorKey, splitStudySentences } from "./src/furigana.js?v=30";
+import { shiftVoice, reduceBreathiness, resampleBy } from "./src/voicefx.js?v=33";
+import { groupBunsetsu, rubySegments, posLabel, posLabelEn, posColorKey, splitStudySentences } from "./src/furigana.js?v=33";
 
 const $ = (id) => document.getElementById(id);
 
@@ -158,7 +158,7 @@ function setupCard(id, engine) {
 
   // Synthesize sentence by sentence, playing as soon as the first is ready.
   // Resolves when playback ends (or Stop is pressed).
-  card.speak = async (text, { interrupt = false } = {}) => {
+  card.speak = async (text, { interrupt = false, speedFactor = 1 } = {}) => {
     if (!state.ready) return;
     if (state.busy) {
       if (!interrupt) return;
@@ -175,8 +175,10 @@ function setupCard(id, engine) {
     try {
       log(`${sentences.length} sentence(s)`);
       const t0 = performance.now();
+      const cleanShift = $("clean-shift").checked;
       const base = params();
-      if (base.pitch || base.formant) log(`Voice: pitch ${base.pitch} st, formants ${base.formant} st (Rubber Band)`);
+      base.speed *= speedFactor; // study mode's 🐢 button passes 0.75
+      if (base.pitch || base.formant) log(`Voice: pitch ${base.pitch} st, formants ${base.formant} st (${cleanShift && base.formant ? "clean resample + Rubber Band" : "Rubber Band"})`);
       for (const [i, sentence] of sentences.entries()) {
         if (playback.gen !== generation) { log("Stopped."); break; }
         const t1 = performance.now();
@@ -189,9 +191,16 @@ function setupCard(id, engine) {
           await speakBrowser(sentence, { rate: base.speed, pitchSt: base.pitch });
           continue;
         }
-        const synth = await engine.synth(sentence, { ...base, language: foreign ? "en" : "ja" });
+        // Alternative ("experimental") shifting: do the formant part of the change by plain resampling (artifact-free; it moves pitch and
+        // formants together) after asking the model to talk faster by the same factor to keep the tempo, then let
+        // Rubber Band handle only the remaining pitch difference. No measurable noise difference vs Rubber Band alone, but it may sound different.
+        const hybrid = cleanShift && base.formant !== 0;
+        const ratio = hybrid ? 2 ** (base.formant / 12) : 1;
+        const synth = await engine.synth(sentence, { ...base, speed: base.speed / ratio, language: foreign ? "en" : "ja" });
         const sampleRate = synth.sampleRate;
-        const shifted = await shiftVoice(synth.samples, sampleRate, base.pitch, base.formant);
+        const shifted = hybrid
+          ? await shiftVoice(await resampleBy(synth.samples, sampleRate, ratio), sampleRate, base.pitch - base.formant, 0)
+          : await shiftVoice(synth.samples, sampleRate, base.pitch, base.formant);
         const samples = await reduceBreathiness(shifted, sampleRate, base.breath);
         if (playback.gen !== generation) { log("Stopped."); break; }
         const ms = performance.now() - t1;
@@ -396,7 +405,7 @@ const readerLog = (m) => { const el = $("reader-log"); el.textContent += m + "\n
 
 function readerCall(msg, onLog) {
   reader.worker ??= (() => {
-    const w = new Worker("./src/sudachi-worker.js?v=30", { type: "module" });
+    const w = new Worker("./src/sudachi-worker.js?v=33", { type: "module" });
     w.onmessage = ({ data }) => {
       const p = reader.pending.get(data.id);
       if (!p) return;
@@ -417,14 +426,21 @@ function renderReader(lines, sentences = null) {
     const line = document.createElement("div");
     line.className = sentences ? "line study" : "line";
     if (sentences?.[idx]) {
-      const say = document.createElement("button");
-      say.type = "button";
-      say.className = "say";
-      say.textContent = "🔊";
-      say.title = "Read this sentence aloud (click again to stop)";
-      say.setAttribute("aria-label", `Read aloud: ${sentences[idx]}`);
-      say._text = sentences[idx];
-      line.append(say);
+      // two buttons per sentence: 🔊 at the selected speed, 🐢 at 0.75x of it
+      for (const [icon, factor, title] of [
+        ["🔊", 1, "Read this sentence aloud at the selected speed (click again to stop)"],
+        ["🐢", 0.75, "Read it slowly: 0.75× the selected speed (click again to stop)"],
+      ]) {
+        const say = document.createElement("button");
+        say.type = "button";
+        say.className = "say";
+        say.textContent = icon;
+        say.title = title;
+        say.setAttribute("aria-label", `${factor === 1 ? "Read aloud" : "Read slowly"}: ${sentences[idx]}`);
+        say._text = sentences[idx];
+        say._factor = factor;
+        line.append(say);
+      }
     }
     if (morphs) {
       for (const group of groupBunsetsu(morphs)) {
@@ -621,7 +637,7 @@ async function speakStudy(btn) {
   studyCurrent?.classList.remove("speaking");
   studyCurrent = btn;
   btn.classList.add("speaking");
-  try { await card.speak(btn._text, { interrupt: true }); }
+  try { await card.speak(btn._text, { interrupt: true, speedFactor: btn._factor ?? 1 }); }
   finally { if (studyCurrent === btn) { btn.classList.remove("speaking"); studyCurrent = null; } }
 }
 
@@ -644,3 +660,6 @@ applyFuri();
 
 $("foreign-voice").value = pref.get("foreignVoice", "browser");
 $("foreign-voice").addEventListener("change", () => pref.set("foreignVoice", $("foreign-voice").value));
+
+$("clean-shift").checked = pref.get("cleanShift", "0") === "1"; // off by default: no measured benefit, kept for comparing by ear
+$("clean-shift").addEventListener("change", () => pref.set("cleanShift", $("clean-shift").checked ? "1" : "0"));
