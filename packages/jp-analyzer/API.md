@@ -65,7 +65,7 @@ Options (all optional except `engines`):
 | `idleTimeout` | `60_000` | Free the memory after this many ms unused. `0` = never |
 | `stopWhenHidden` | `true` | Free the memory while the page is in the background (iOS kills heavy background tabs first) |
 | `crashGuard` | `{ retryAfterDays: 7 }` | Never load an engine again right after it crashed the tab (§7). `false` = off |
-| `timeouts` | `{ loadStall: 60_000, analyze: 20_000 }` | Give up instead of hanging (§7) |
+| `timeouts` | `{ loadStall: 60_000, analyzeStall: 20_000 }` | Give up instead of hanging (§7) |
 | `persistStorage` | `true` | Ask the browser to keep the cached dictionary |
 
 After an idle or background stop, the next `analyze()` reloads from the cache (about 0.5–2 s, no download). The
@@ -143,13 +143,18 @@ const perLine = await analyzer.analyzeMany(text.split("\n"));   // perLine[i] be
 ```
 
 Guarantees:
-- **Nothing is dropped.** Joining every `surface` gives back the exact input, including spaces and line breaks
-  (these come back as `pos: "whitespace"`). `input.slice(m.start, m.end) === m.surface`.
+- **Nothing is dropped or changed.** Joining every `surface` gives back the exact input, including spaces and line
+  breaks (these come back as `pos: "whitespace"`). `input.slice(m.start, m.end) === m.surface`. Sudachi rewrites
+  some characters internally (e.g. `:` → `：`); `surface` is always the original text.
 - `start`/`end` are ordinary JavaScript string positions.
 - `reading` is katakana, or `""` when the engine has none (unknown words, some loanwords like スマホ, symbols).
 - `normalizedForm` exists only with Sudachi. Use `m.normalizedForm ?? m.dictionaryForm` to handle both engines.
-- **Long text is fine.** The engine's memory never shrinks, so one huge call would keep it large for good. The
-  analyzer therefore sends long text to the engine in pieces (split at sentence ends) and joins the results.
+- **Long text is fine.** The engine's memory never shrinks: one 50,000-character call would grow Sudachi from 150 MB
+  to 234 MB for good (200,000 characters: 534 MB). The analyzer therefore sends long text to the engine in pieces of
+  ≤ 2,000 characters, cut at sentence ends, and joins the results. Memory stays at ~150 MB.
+- **URLs, emoji and long latin runs are fine.** The 2020 Sudachi build crashes on one unknown "word" of 256 bytes or
+  more: a ~250-character URL, 64 emoji in a row, `wwww…`. The analyzer cuts such runs into shorter pieces first, and
+  if Sudachi still fails on a piece, it splits that piece and retries. One odd stretch never loses the whole text.
 
 ### The same fields from every engine
 
@@ -270,9 +275,11 @@ with `out-of-memory`, and no 43 MB download is wasted. This catches only the ref
 kill is handled by the crash guard above.
 
 ### Timeouts
-- `timeouts.loadStall` (default 60 s): `load()` gives up when **nothing happens** for that long (no download
-  progress, no startup progress). A slow connection that is still downloading doesn't time out.
-- `timeouts.analyze` (default 20 s): a single call that takes longer is abandoned.
+Both measure time **without progress**, so slow-but-working never times out:
+- `timeouts.loadStall` (default 60 s): `load()` gives up when nothing happens for that long (no download progress,
+  no startup progress). A slow connection that is still downloading doesn't time out.
+- `timeouts.analyzeStall` (default 20 s): a call gives up when the engine doesn't finish the next piece of text
+  (~2,000 characters, normally well under a second) for that long. A very long text on a slow phone is fine.
 
 Either way the worker is stopped (freeing its memory) and the promise rejects with `timeout`. The next call starts
 fresh.
@@ -291,7 +298,8 @@ Everything rejects with `AnalyzerError`, which has a `code`:
 | `download-failed` | network/HTTP error, including a wrong `dictUrl` |
 | `checksum-mismatch` | a downloaded part was corrupt |
 | `out-of-memory` | the browser refused the memory (checked before downloading) |
-| `timeout` | `load()` stalled, or an `analyze()` took too long |
+| `timeout` | `load()` or `analyze()` made no progress for too long |
+| `engine-failed` | the engine failed unexpectedly (e.g. its worker file could not be loaded) |
 | `worker-crashed` | the worker died after loading |
 
 ## 8. Text helpers: `jp-analyzer/text`
@@ -333,27 +341,37 @@ Vite, webpack 5, esbuild and Parcel handle automatically. No setup needed.
 ## Status
 
 **Built and tested** (plain JavaScript for now; to be converted to TypeScript when the package gets a build step):
+`createAnalyzer` with everything in §2–§7, the Sudachi engine, and `copy-dict sudachi`.
 
 | File | What it does |
 |---|---|
-| [bin/jp-analyzer.mjs](bin/jp-analyzer.mjs) | `copy-dict sudachi <dir>`: splits Sudachi into program + gzip parts + manifest |
-| [bin/split-wasm.mjs](bin/split-wasm.mjs) | Moves the dictionary (wasm data segments) out of the program |
-| [src/dict-store.js](src/dict-store.js) | Download, checksum, IndexedDB cache of compressed parts, streaming into engine memory |
+| [src/index.js](src/index.js) | `createAnalyzer`: shared engines, crash guard, timeouts, idle/hidden stop, fallback |
+| [src/engines/sudachi.js](src/engines/sudachi.js) | `sudachi({ dictUrl })` |
 | [src/engines/sudachi-worker.js](src/engines/sudachi-worker.js) | Sudachi worker: program first, then the dictionary written into its memory |
-| [test/verify-split.mjs](test/verify-split.mjs) | Node check: split output is identical to the original Sudachi |
-| [test/memory.html](test/memory.html) | Browser/iPhone test page comparing the old and new loading methods |
+| [src/engines/sudachi-analyze.js](src/engines/sudachi-analyze.js) | Sudachi output → `Morpheme`s; protection against its crashes and rewritten characters |
+| [src/engines/sudachi-pos.js](src/engines/sudachi-pos.js) | Sudachi tags → engine-neutral `pos` and `tags` |
+| [src/split-input.js](src/split-input.js) | Splits long input into ≤ 2,000-character pieces at sentence ends |
+| [src/dict-store.js](src/dict-store.js) | Download, checksum, IndexedDB cache of compressed parts, streaming into engine memory |
+| [bin/jp-analyzer.mjs](bin/jp-analyzer.mjs), [bin/split-wasm.mjs](bin/split-wasm.mjs) | `copy-dict sudachi <dir>`: program + gzip parts + manifest |
 
-Results so far: identical output on 16 test texts; in Chrome, first load 0.7 s, from cache 0.5 s. Sudachi's memory is
-150 MB either way; the new method removes the old one's extra ~116 MB module copy and the full downloaded file.
-**Still to do:** measure on a real iPhone.
+Tests:
+
+| File | What it checks |
+|---|---|
+| [test/analyze.test.mjs](test/analyze.test.mjs) | Node: input splitting, offsets, pos/tags, URL/emoji crash protection, rewritten characters, flat memory on long text |
+| [test/verify-split.mjs](test/verify-split.mjs) | Node: the split Sudachi gives output identical to the original |
+| [test/analyzer.html](test/analyzer.html) | Browser: the whole `createAnalyzer` API, incl. shared engines, timeouts, idle/hidden stop, fallback, crash guard |
+| [test/memory.html](test/memory.html) | Browser/iPhone: compares the old and new loading methods, with Web Inspector steps |
+
+Results so far: all tests pass in Chrome; first load 0.7 s, from cache 0.5 s. **Still to do:** run on a real iPhone.
 
 To try it (from the repository root):
 
 ```bash
 node packages/jp-analyzer/bin/jp-analyzer.mjs copy-dict sudachi packages/jp-analyzer/test/dict --source models/sudachi/sudachi.wasm
-node packages/jp-analyzer/test/verify-split.mjs models/sudachi/sudachi.wasm packages/jp-analyzer/test/dict/sudachi
-python3 serve.py 8080     # then open http://localhost:8080/packages/jp-analyzer/test/memory.html
+node --test packages/jp-analyzer/test/analyze.test.mjs
+python3 serve.py 8080     # then open /packages/jp-analyzer/test/analyzer.html and /packages/jp-analyzer/test/memory.html
 ```
 
-**Design only (not built yet):** `createAnalyzer` and everything in §2–§7, the text helpers (§8, today in
-`src/furigana.js` of the playground), the `ipadic` engine, the React wrapper.
+**Not built yet:** the text helpers (§8, today in `src/furigana.js` of the playground), the `ipadic` engine, the React
+wrapper, and switching the playground over to the package.

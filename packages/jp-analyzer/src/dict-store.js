@@ -1,6 +1,7 @@
 // Downloads and caches a dictionary written by `jp-analyzer copy-dict`, and streams it into an engine's memory.
+// Runs in workers (loading) and on the page (isCached, downloadSize, clearCache).
 //
-// The compressed parts are what gets stored in IndexedDB (about 42 MB for Sudachi, not the 125 MB unpacked). Each
+// The compressed parts are what gets stored in IndexedDB (about 43 MB for Sudachi, not the 125 MB unpacked). Each
 // load unpacks them one at a time and hands the unpacked bytes to `onData`, so no full copy of the dictionary is ever
 // held outside the engine's own memory. Peak extra memory is about one part (~20 MB).
 //
@@ -8,6 +9,7 @@
 //   "<engine>@<version>/<file>"   compressed bytes of one file
 //   "<engine>@<version>"          the manifest, written last: its presence means every file above is stored
 //   "manifest:<manifest url>"     the last manifest seen at that URL, so a cached dictionary also loads offline
+import { codedError } from "./errors.js";
 
 const DB_NAME = "jp-analyzer";
 const STORE = "files";
@@ -60,7 +62,7 @@ async function getManifest(manifestUrl) {
   } catch (err) {
     const saved = await idbGet(`manifest:${manifestUrl}`).catch(() => null);
     if (saved) return saved;
-    throw new Error(`could not load ${manifestUrl}: ${err.message}`);
+    throw codedError("download-failed", `could not load ${manifestUrl}: ${err.message}`);
   }
 }
 
@@ -75,58 +77,65 @@ export async function clearDict(engine) {
 }
 
 async function download(url, expectedSize, onBytes) {
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`${url}: ${res.status} ${res.statusText}`);
+  let res;
+  try { res = await fetch(url); }
+  catch (e) { throw codedError("download-failed", `${url}: ${e.message}`); }
+  if (!res.ok) throw codedError("download-failed", `${url}: ${res.status} ${res.statusText}`);
   const out = new Uint8Array(expectedSize);
   const reader = res.body.getReader();
   let n = 0;
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    if (n + value.length > out.length) throw new Error(`${url} is larger than the manifest says`);
-    out.set(value, n);
-    n += value.length;
-    onBytes(value.length);
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (n + value.length > out.length) throw codedError("download-failed", `${url} is larger than the manifest says`);
+      out.set(value, n);
+      n += value.length;
+      onBytes(value.length);
+    }
+  } catch (e) {
+    throw e.code ? e : codedError("download-failed", `${url}: ${e.message}`);
   }
-  if (n !== expectedSize) throw new Error(`${url}: got ${n} bytes, the manifest says ${expectedSize}`);
+  if (n !== expectedSize) throw codedError("download-failed", `${url}: got ${n} bytes, the manifest says ${expectedSize}`);
   return out;
 }
 
 /**
- * @param {string} manifestUrl
+ * @param {string} manifestUrl  absolute URL
  * @param {object} o
  * @param {(code: Uint8Array, manifest: object) => Promise<void>} o.onCode  called first, with the engine's program
  * @param {(chunk: Uint8Array) => void} o.onData           then with the unpacked dictionary bytes, in order
  * @param {(p: {loaded: number, total: number}) => void} [o.onProgress]  download progress (not called when cached)
+ * @param {() => void} [o.onStep]   called after each file is processed (a "still working" signal)
  * @param {(msg: string) => void} [o.log]
  * @returns {Promise<{ manifest: object, fromCache: boolean, cached: boolean }>}
- *   cached = the dictionary is now stored on the device (false when storing failed, e.g. storage full)
+ *   fromCache = nothing was downloaded; cached = the dictionary is now stored on the device
  */
-export async function loadDict(manifestUrl, { onCode, onData, onProgress = () => {}, log = () => {} }) {
-  if (!("DecompressionStream" in self)) throw new Error("this browser cannot unpack gzip (needs Safari 16.4+ or a recent Chrome/Firefox)");
+export async function loadDict(manifestUrl, { onCode, onData, onProgress = () => {}, onStep = () => {}, log = () => {} }) {
+  if (!("DecompressionStream" in self)) throw codedError("unsupported-browser", "this browser cannot unpack gzip (needs Safari 16.4+ or a recent Chrome/Firefox)");
   const m = await getManifest(manifestUrl);
   const id = cacheId(m);
-  const fromCache = !!(await idbGet(id).catch(() => null));
+  const complete = !!(await idbGet(id).catch(() => null));
   const verify = !!self.crypto?.subtle; // not available on plain http:// LAN addresses
-  if (!fromCache && !verify) log("No crypto.subtle (page is not https): skipping checksum verification.");
+  if (!complete && !verify) log("No crypto.subtle (page is not https): skipping checksum verification.");
 
-  let storing = !fromCache;
+  let storing = true;
+  let downloaded = false;
   let loaded = 0;
   const total = m.downloadSize;
 
   /** Bytes of one file: from the cache, or downloaded, verified and stored. */
   const file = async ({ file: name, size, sha256 }) => {
     const key = `${id}/${name}`;
-    if (fromCache) {
-      const bytes = await idbGet(key);
-      if (!bytes) throw new Error(`cached dictionary is incomplete (${name} missing); clear the cache and reload`);
-      return new Uint8Array(bytes);
-    }
-    const bytes = await download(new URL(name, new URL(manifestUrl, location.href)), size, (n) => {
+    const stored = await idbGet(key).catch(() => null);
+    if (stored) return new Uint8Array(stored);
+    if (complete) log(`${name} was missing from the cache; downloading it again.`);
+    downloaded = true;
+    const bytes = await download(new URL(name, manifestUrl), size, (n) => {
       loaded += n;
       onProgress({ loaded, total });
     });
-    if (verify && (await sha256Hex(bytes)) !== sha256) throw new Error(`${name} is corrupt (checksum mismatch); reload to try again`);
+    if (verify && (await sha256Hex(bytes)) !== sha256) throw codedError("checksum-mismatch", `${name} is corrupt (checksum mismatch); reload to try again`);
     if (storing) {
       try { await idbPut(key, bytes.buffer); }
       catch (e) { storing = false; log(`Could not store the dictionary on this device (${e?.name ?? e}); it will download again next time.`); }
@@ -135,6 +144,7 @@ export async function loadDict(manifestUrl, { onCode, onData, onProgress = () =>
   };
 
   await onCode(await file(m.code), m);
+  onStep();
 
   let written = 0;
   for (const part of m.data.parts) {
@@ -146,14 +156,15 @@ export async function loadDict(manifestUrl, { onCode, onData, onProgress = () =>
       onData(value);
       written += value.length;
     }
+    onStep();
   }
-  if (written !== m.data.rawSize) throw new Error(`dictionary unpacked to ${written} bytes, the manifest says ${m.data.rawSize}`);
+  if (written !== m.data.rawSize) throw codedError("checksum-mismatch", `dictionary unpacked to ${written} bytes, the manifest says ${m.data.rawSize}`);
 
-  if (storing) {
+  if (!complete && storing) {
     try {
       await idbPut(id, m); // marks the stored copy complete
       await idbDeleteEngine(m.engine, id); // drop older versions of this engine's dictionary
     } catch (e) { storing = false; log(`Could not finish storing the dictionary (${e?.name ?? e}).`); }
   }
-  return { manifest: m, fromCache, cached: fromCache || storing };
+  return { manifest: m, fromCache: !downloaded, cached: complete || storing };
 }

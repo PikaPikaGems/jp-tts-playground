@@ -4,7 +4,15 @@
   "description": "Japanese morphological analysis in the browser (Sudachi, or lindera + IPADIC), iPhone Safari friendly. Work in progress: see API.md.",
   "private": true,
   "type": "module",
+  "exports": {
+    ".": "./src/index.js",
+    "./sudachi": "./src/engines/sudachi.js"
+  },
+  "types": "./src/types.ts",
   "bin": {
     "jp-analyzer": "./bin/jp-analyzer.mjs"
+  },
+  "scripts": {
+    "test": "node --test test/analyze.test.mjs"
   }
 }

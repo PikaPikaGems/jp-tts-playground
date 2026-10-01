@@ -1,5 +1,5 @@
 // Public types for jp-analyzer. This file is the source of truth for the API; API.md explains it in prose.
-// Status: DRAFT. createAnalyzer and the text helpers are not implemented yet (see API.md, "Status").
+// Implemented in src/index.js (plain JavaScript for now). Not built yet: the text helpers and the ipadic engine.
 
 // ------------------------------------------------------------------------------------------------ results
 
@@ -28,7 +28,7 @@ export type PosTag =
   | "bracket-close";   // 」 ) 』
 
 export interface Morpheme {
-  /** The text exactly as it appears in the input. */
+  /** The text exactly as it appears in the input (even where the engine rewrites characters, e.g. ":" → "："). */
   surface: string;
   /** Reading in katakana. Empty string when the engine has none (unknown words, some loanwords, symbols). */
   reading: string;
@@ -89,12 +89,15 @@ export interface AnalyzerOptions {
    * `false` turns this off. Default { retryAfterDays: 7 }.
    */
   crashGuard?: false | { retryAfterDays: number };
-  /** Give up (and stop the worker) when things hang, instead of leaving the UI waiting forever. */
+  /**
+   * Give up (and stop the worker) when things hang, instead of leaving the UI waiting forever. Both measure time
+   * WITHOUT PROGRESS, so a slow download or a long text that is still moving never times out.
+   */
   timeouts?: {
-    /** load(): ms without any progress (download or startup). Default 60_000. */
+    /** load(): ms without download or startup progress. Default 60_000. */
     loadStall?: number;
-    /** One analyze()/analyzeMany() call. Default 20_000. */
-    analyze?: number;
+    /** analyze()/analyzeMany(): ms without finishing the next piece of text (~2,000 characters). Default 20_000. */
+    analyzeStall?: number;
   };
   /** Ask the browser to keep the cached dictionary (navigator.storage.persist()) after a download. Default true. */
   persistStorage?: boolean;
@@ -181,7 +184,8 @@ export type AnalyzerErrorCode =
   | "download-failed"       // network or HTTP error (includes a missing manifest: check dictUrl)
   | "checksum-mismatch"     // a downloaded part was corrupt
   | "out-of-memory"         // the browser refused the engine's memory (checked before downloading)
-  | "timeout"               // load() made no progress, or an analyze() call took too long; the worker was stopped
+  | "timeout"               // load() or analyze() made no progress for too long; the worker was stopped
+  | "engine-failed"         // the engine failed in an unexpected way (e.g. its worker file could not load)
   | "worker-crashed";       // the worker died after loading
 
 export declare class AnalyzerError extends Error {
