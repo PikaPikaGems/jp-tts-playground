@@ -1,109 +1,101 @@
-# jp-analyzer: API (draft)
+# wakachi: API (draft)
 
-Japanese text analysis in the browser (readings, dictionary forms, parts of speech) that works on iPhone Safari.
-The work happens in a Web Worker. The dictionary is downloaded once and kept in IndexedDB.
+Japanese text analysis in the browser — readings, furigana, dictionary forms, parts of speech — that works on iPhone
+Safari. It runs [Sudachi](https://github.com/WorksApplications/sudachi.rs) in a Web Worker; the dictionary is
+downloaded once (in parts, so any static host works) and kept on the device.
 
-`jp-analyzer` is a placeholder name. The exact types are in [src/types.ts](src/types.ts). What exists today and
-what is still design only: see [Status](#status).
+*wakachi* comes from 分かち書き (*wakachi-gaki*): writing Japanese with spaces between the words.
+
+This page describes the API we are building towards. The code still lives in `packages/jp-analyzer` of
+jp-tts-playground and does not match it everywhere yet: see [Status](#status). Exact types: [src/types.ts](src/types.ts).
 
 | Import | What it gives you |
 |---|---|
-| `jp-analyzer` | `createAnalyzer`, `AnalyzerError`, types |
-| `jp-analyzer/sudachi` | `sudachi({ dictUrl })`: Sudachi + SudachiDict. Best quality, ~43 MB download, ~150 MB memory |
-| `jp-analyzer/ipadic` | `ipadic({ dictUrl })`: lindera + IPADIC. ~17 MB download, ~130 MB memory |
-| `jp-analyzer/text` | Furigana, bunsetsu, sentence splitting. Pure functions: no worker, no dictionary |
+| `wakachi` | `createAnalyzer`, `AnalyzerError`, types |
+| `wakachi/text` | Furigana, bunsetsu, sentence splitting: pure functions, no worker, no dictionary |
+| `wakachi-react` (later) | `<WakachiProvider>`, `useAnalysis(text)`, `<Furigana text>` |
 
-A React wrapper (`jp-analyzer-react`) will be a separate package later.
+The quickest possible use:
 
-### Choosing an engine
+```js
+import { createAnalyzer } from "wakachi";
 
-| | `sudachi` | `ipadic` |
-|---|---|---|
-| Download (first visit) | ~43 MB | ~17 MB |
-| Memory while loaded | ~150 MB | ~130 MB |
-| Readings, word splitting | Better | Good (older dictionary, from 2007) |
-| `normalizedForm` | Yes | No |
-| Underlying code | 2020 build, frozen | Maintained (lindera) |
-
-The two use **about the same memory**, so `ipadic` is a choice for a **smaller download**, not a way to avoid
-crashes. If an engine crashes a device, the answer is to show the page without analysis (see §7).
+const analyzer = createAnalyzer();
+await analyzer.load();
+const ruby = await analyzer.furigana("今日は晴れ");
+// → [{ text: "今日", reading: "きょう" }, { text: "は" }, { text: "晴", reading: "は" }, { text: "れ" }]
+```
 
 ---
 
-## 1. Setup: put the dictionary files in your site
+## 1. Setup (once per project)
 
 ```bash
-npx jp-analyzer copy-dict sudachi public/dict
-npx jp-analyzer copy-dict ipadic  public/dict      # only if you use it
+npm install <wakachi release URL>
 ```
 
-This writes `public/dict/sudachi/`: a `manifest.json`, the program (`sudachi-code.wasm`, 1.1 MB) and the dictionary
-as gzip parts (`dict.part001.gz`...). Each part is at most 20 MB *before* compression (~4–10 MB as files), so they
-fit Cloudflare Pages (25 MiB per file) and GitHub Pages. Use `--part-size <MB>` if your host is stricter.
+Add the dictionary files to the project with one command, and run it automatically before the dev server and builds:
 
-Add `public/dict/` to `.gitignore` and run the command before each build (e.g. in a `prebuild` script). The source
-files are downloaded once and cached on your machine (`~/.cache/jp-analyzer`).
+```json
+"scripts": {
+  "predev": "wakachi copy-files public/wakachi",
+  "prebuild": "wakachi copy-files public/wakachi"
+}
+```
+
+- The files (~43 MB) are downloaded once from the wakachi release and cached on your computer; after that the
+  command only copies them.
+- They are split into parts of at most 20 MB, so they work on GitHub Pages and Cloudflare Pages (25 MiB per file).
+  `--part-size <MB>` for stricter hosts.
+- Add `public/wakachi/` to `.gitignore`.
+- Vite, Next.js and Create React App serve `public/` at the site root, so the files end up at `/wakachi/`: the
+  default the analyzer looks in. Nothing to configure.
 
 ## 2. Create an analyzer
 
 ```js
-import { createAnalyzer } from "jp-analyzer";
-import { sudachi } from "jp-analyzer/sudachi";
-
-const analyzer = createAnalyzer({
-  engines: [sudachi({ dictUrl: "/dict/sudachi/manifest.json" })],
-});
+const analyzer = createAnalyzer();
 ```
 
-Creating an analyzer **does nothing**: no download, no worker, no memory used.
-
-Options (all optional except `engines`):
+Creating it **does nothing**: no download, no worker, no memory. Options, all optional:
 
 | Option | Default | What it does |
 |---|---|---|
-| `engines` | required | Engines to try, in order (see §6) |
+| `filesUrl` | `"/wakachi/"` | Where `copy-files` put the files, if not the default |
+| `readings` | `{}` | Your own reading fixes, e.g. `{ "私": "わたくし" }` (§6) |
+| `everydayReadings` | `true` | Built-in everyday readings: 私→わたし, 明日→あした, 日本→にほん (§6) |
 | `idleTimeout` | `60_000` | Free the memory after this many ms unused. `0` = never |
 | `stopWhenHidden` | `true` | Free the memory while the page is in the background (iOS kills heavy background tabs first) |
-| `crashGuard` | `{ retryAfterDays: 7 }` | Never load an engine again right after it crashed the tab (§7). `false` = off |
-| `timeouts` | `{ loadStall: 60_000, analyzeStall: 20_000 }` | Give up instead of hanging (§7) |
-| `persistStorage` | `true` | Ask the browser to keep the cached dictionary |
+| `crashGuard` | `{ retryAfterDays: 7 }` | Don't load again right after a load crashed the tab (§8). `false` = off |
+| `timeouts` | `{ loadStall: 60_000, analyzeStall: 20_000 }` | Give up instead of hanging (§8) |
+| `persistStorage` | `true` | Ask the browser to keep the downloaded dictionary |
 
-After an idle or background stop, the next `analyze()` reloads from the cache (about 0.5–2 s, no download). The
-host doesn't have to do anything.
+After an idle or background stop, the next call reloads from the device (about 0.5–2 s, no download). Nothing to do.
 
-### Engines are shared across the page
+**One Sudachi per page.** It uses ~150 MB, so every analyzer on the page shares the same one. Create analyzers
+wherever convenient (e.g. one per component); it's loaded once.
 
-Each engine uses a lot of memory, so **each dictionary is loaded at most once per page**, however many analyzers use
-it. Two components creating their own analyzers with the same Sudachi `dictUrl` share one Sudachi. Analyzers are
-cheap handles, so create them wherever it's convenient.
-
-## 3. Load, when the host decides
+## 3. Load, when you decide
 
 Nothing is downloaded or loaded until `load()`. Calling `analyze()` first throws `AnalyzerError("not-loaded")`.
 
 ```js
-if (!(await analyzer.isCached())) {
-  const mb = Math.round((await analyzer.downloadSize()) / 1e6);
-  if (!confirm(`Download the Japanese dictionary (${mb} MB)?`)) return;
-}
+const { cached, downloadMB } = await analyzer.info();
+if (!cached && !confirm(`Download the Japanese dictionary (${downloadMB} MB)?`)) return;
 
 const off = analyzer.on("progress", ({ loaded, total }) => showBar(loaded / total));
 try {
-  const result = await analyzer.load();
-  result.engine;     // "sudachi" or "ipadic"
-  result.fromCache;  // true = nothing was downloaded
+  const { fromCache } = await analyzer.load();    // fromCache: nothing was downloaded
 } catch (err) {
-  if (err.code === "unavailable") showPlainText();   // see §7
+  if (err.code === "unavailable") showPlainText(); // it crashed this device before: see §8
   else showError(err.message);
 } finally {
   off();
 }
 ```
 
-- `load()` also warms the engine up, so when it finishes, the first `analyze()` is already fast.
-- Calling `load()` while it's already loading returns the same promise. Calling it when ready resolves at once.
-- `isCached()` and `downloadSize()` refer to the engine `load()` will try first. Pass `"ipadic"` etc. to ask about
-  a specific one.
+- `load()` also warms Sudachi up, so the first `analyze()` afterwards is fast.
+- Calling `load()` while it's loading returns the same promise; when ready it resolves at once.
 
 ### Status
 
@@ -112,12 +104,24 @@ analyzer.on("status", (s) => render(s));   // returns an unsubscribe function
 analyzer.status;                           // current value
 ```
 
-`not-loaded` → `downloading` (only when not cached) → `loading` → `ready` ⇄ `stopped`.
-`unavailable` = crash guard (§7). `error` = every engine failed.
+`not-loaded` → `downloading` (only when not on the device yet) → `loading` → `ready` ⇄ `stopped` (memory freed;
+reloads by itself). `unavailable`: crash guard (§8). `error`: loading failed.
 
-Use `analyzer.on(...)` rather than a callback option: several parts of an app can listen at the same time.
+## 4. Furigana
 
-## 4. Analyze
+```js
+const ruby = await analyzer.furigana("食べた後で");
+// → [{ text: "食", reading: "た" }, { text: "べた" }, { text: "後", reading: "あと" }, { text: "で" }]
+```
+
+- Readings (hiragana) sit on the kanji and numbers only; kana next to them (okurigana) is left alone.
+- Joining every `text` gives back the exact input.
+- Uses the everyday readings (§6).
+
+For richer displays (word spacing, colours by part of speech, dictionary forms on tap), use `analyze()` and the
+helpers in `wakachi/text` (§9) instead.
+
+## 5. Analyze
 
 ```js
 const words = await analyzer.analyze("猫が好き。");
@@ -136,32 +140,24 @@ const words = await analyzer.analyze("猫が好き。");
 ]
 ```
 
-Many texts in one trip to the worker (e.g. one per sentence or per line):
+Many texts in one trip to the worker (e.g. one per line):
 
 ```js
 const perLine = await analyzer.analyzeMany(text.split("\n"));   // perLine[i] belongs to line i
 ```
 
 Guarantees:
-- **Nothing is dropped or changed.** Joining every `surface` gives back the exact input, including spaces and line
-  breaks (these come back as `pos: "whitespace"`). `input.slice(m.start, m.end) === m.surface`. Sudachi rewrites
-  some characters internally (e.g. `:` → `：`); `surface` is always the original text.
+- **Nothing is dropped or changed.** Joining every `surface` gives back the exact input, spaces and line breaks
+  included (`pos: "whitespace"`). `input.slice(m.start, m.end) === m.surface`. Sudachi rewrites some characters
+  internally (`:` → `：`); `surface` is always your original text.
 - `start`/`end` are ordinary JavaScript string positions.
-- `reading` is katakana, or `""` when the engine has none (unknown words, some loanwords like スマホ, symbols).
-- `normalizedForm` exists only with Sudachi. Use `m.normalizedForm ?? m.dictionaryForm` to handle both engines.
-- **Long text is fine.** The engine's memory never shrinks: one 50,000-character call would grow Sudachi from 150 MB
-  to 234 MB for good (200,000 characters: 534 MB). The analyzer therefore sends long text to the engine in pieces of
-  ≤ 2,000 characters, cut at sentence ends, and joins the results. Memory stays at ~150 MB.
-- **URLs, emoji and long latin runs are fine.** The 2020 Sudachi build crashes on one unknown "word" of 256 bytes or
-  more: a ~250-character URL, 64 emoji in a row, `wwww…`. The analyzer cuts such runs into shorter pieces first, and
-  if Sudachi still fails on a piece, it splits that piece and retries. One odd stretch never loses the whole text.
-
-### The same fields from every engine
-
-`pos` and `tags` are the engine-neutral fields. The text helpers use only these, so they give the same kind of
-result whichever engine loaded. `posDetail` holds the engine's original tags, which **differ between engines**
-(Sudachi uses UniDic tags, IPADIC uses its own). Only use `posDetail` if you need that detail and know which
-engine you have (`analyzer.engine`).
+- `reading` is katakana, or `""` when there is none (unknown words, some loanwords like スマホ, symbols).
+- **Long text is fine.** Sudachi's memory never shrinks — one 50,000-character call would grow it from 150 MB to
+  234 MB for good — so long text is analyzed in pieces of ≤ 2,000 characters, cut at sentence ends. Memory stays at
+  ~150 MB.
+- **URLs, emoji and long latin runs are fine.** This Sudachi build crashes on one unknown "word" of 256+ bytes (a
+  ~250-character URL, 64 emoji in a row, `wwww…`). Such runs are cut first, and a piece that still fails is split
+  and retried. One odd stretch never loses the whole text.
 
 | `pos` | Meaning |
 |---|---|
@@ -185,6 +181,8 @@ engine you have (`analyzer.engine`).
 | `conjunctive` | conjunctive particle (て, けど) |
 | `bracket-open`, `bracket-close` | 「 」 ( ) |
 
+`posDetail` is Sudachi's own UniDic-style tag list, for anyone who needs more detail than `pos` and `tags`.
+
 ### Cancelling
 
 ```js
@@ -193,185 +191,146 @@ textbox.oninput = async () => {
   ctrl?.abort();                        // cancel MY previous call only
   ctrl = new AbortController();
   try {
-    render(await analyzer.analyze(textbox.value, { signal: ctrl.signal }));
+    render(await analyzer.furigana(textbox.value, { signal: ctrl.signal }));
   } catch (e) {
     if (e.name !== "AbortError") throw e;
   }
 };
 ```
 
-The analyzer does **not** cancel older calls by itself. Engines are shared, so one component's call must never
-cancel another's. The React hook will do the above for you.
+Older calls are **not** cancelled automatically: Sudachi is shared, so one component's call must never cancel
+another's. The React hook does the above for you.
 
-## 5. Freeing memory and cache
+## 6. Readings
+
+Sudachi's dictionary prefers formal readings for some very common words. wakachi corrects the most noticeable ones
+(`everydayReadings`, on by default), measured against a 10,000-word frequency list:
+
+| Word | Sudachi | wakachi |
+|---|---|---|
+| 私 | わたくし | わたし |
+| 明日 | あす | あした |
+| 日本, 日本語, 日本人 | にっぽん… | にほん, にほんご, にほんじん |
+| お母さん, お父さん, お兄ちゃん… | おははさん, おちちさん… | おかあさん, おとうさん, おにいちゃん… |
+| と言う | とゆう | という |
+| 10月, 30分, 4日, 一回 | いちれいがつ, さんれいふん, よんか, いちかい | じゅうがつ, さんじゅっぷん, よっか, いっかい |
+
+Add or change your own:
 
 ```js
-analyzer.stop();                  // free the memory now; the next analyze() reloads from cache
+createAnalyzer({ readings: { "私": "わたくし", "大分": "おおいた" } });
+```
+
+## 7. Freeing memory and storage
+
+```js
+analyzer.unload();                // free the memory now; the next call reloads from the device
 analyzer.dispose();               // back to "not-loaded": pending calls reject, load() needed again
-await analyzer.clearCache();      // delete the stored dictionaries from this device
+await analyzer.clearCache();      // delete the dictionary from this device
 ```
 
-A shared engine is freed only when **no** analyzer using it still needs it (all stopped, disposed or idle).
+Sudachi is freed only when no analyzer on the page still needs it.
 
-## 6. Choosing engines, fallback and comparing
+## 8. When things go wrong
 
-The engine list is the choice:
+The aim: **the page never freezes, the user never sees the same crash twice, and you always get a clear error.**
 
-```js
-engines: [sudachi(...)]                // Sudachi only
-engines: [ipadic(...)]                 // lindera/IPADIC only
-engines: [sudachi(...), ipadic(...)]   // Sudachi; lindera if Sudachi fails to load
-```
+- **No freezing.** Everything heavy runs in a Web Worker. The one freeze risk is on your side: inserting thousands of
+  furigana elements at once. Render long results in batches (the React hook does).
+- **Never the same crash twice.** When iOS runs out of memory it kills the tab and reloads it; no code gets to react.
+  So wakachi leaves a note before loading and removes it once loaded. If the page comes back with the note still
+  there, the load crashed the tab: for the next `retryAfterDays` (default 7), `load()` rejects with `unavailable`
+  at once (status `unavailable`) instead of crashing again. Show the page without furigana.
+  `analyzer.resetCrashGuard()` (e.g. behind a "Try again" button) clears it.
+- **Out of memory, checked before downloading.** Sudachi's memory is reserved before the dictionary is downloaded. If
+  the browser refuses, `load()` fails at once with `out-of-memory`, without a wasted 43 MB download.
+- **Timeouts measure time without progress**, so slow-but-working never times out. `loadStall` (60 s): no download or
+  startup progress. `analyzeStall` (20 s): no piece of text (~2,000 characters, normally well under a second)
+  finished. Either way the worker is stopped and the call rejects with `timeout`; the next call starts fresh.
 
-`load()` tries them in order and uses the first that works. It moves to the next one on errors it can see:
-download failed, storage full, the browser refused the memory (`out-of-memory`), `timeout`.
-
-### Comparing engines side by side
-
-Use one analyzer per engine:
-
-```js
-const s = createAnalyzer({ engines: [sudachi({ dictUrl: "/dict/sudachi/manifest.json" })] });
-const l = createAnalyzer({ engines: [ipadic({ dictUrl: "/dict/ipadic/manifest.json" })] });
-
-await Promise.all([s.load(), l.load()]);
-const [a, b] = await Promise.all([s.analyze(text), l.analyze(text)]);
-```
-
-Both loaded at once is about 280 MB: fine on desktop, risky on older phones. On phones, keep one loaded at a time:
-
-```js
-s.stop();         // free Sudachi
-await l.load();   // then load lindera (from cache: no download)
-```
-
-## 7. When things go wrong: failing gracefully
-
-The goal: **the page never freezes, the user never sees the same crash twice, and the host always gets a clear
-error to show.**
-
-### The page doesn't freeze
-All loading and analysis runs in a Web Worker, so scrolling and buttons keep working. The one real freeze risk is
-on the host's side: inserting thousands of furigana elements at once. Render long results in batches (the React
-hook will).
-
-### Crashes: never twice
-When iOS runs out of memory it kills the tab and reloads the page. No error is thrown, and no code gets to react.
-So before starting an engine, the analyzer writes a note in `localStorage`, and removes it once the engine is
-ready. If the page comes back and the note is still there, that engine crashed the tab:
-
-- `load()` skips it for `retryAfterDays` (default 7), and `result.skipped` says `"crashed-before"`.
-- If no engine is left, `load()` rejects with **`unavailable`** and the status becomes `unavailable`. Show the page
-  without analysis, e.g. plain text or "Furigana isn't available on this device".
-
-```js
-createAnalyzer({ engines: [...], crashGuard: { retryAfterDays: 7 } });   // or crashGuard: false
-analyzer.resetCrashGuard();   // e.g. behind a "Try again" button
-```
-
-### Out of memory, checked before downloading
-Before downloading, the worker reserves the memory the engine needs. If the browser refuses, `load()` fails at once
-with `out-of-memory`, and no 43 MB download is wasted. This catches only the refusals the browser reports; an iOS
-kill is handled by the crash guard above.
-
-### Timeouts
-Both measure time **without progress**, so slow-but-working never times out:
-- `timeouts.loadStall` (default 60 s): `load()` gives up when nothing happens for that long (no download progress,
-  no startup progress). A slow connection that is still downloading doesn't time out.
-- `timeouts.analyzeStall` (default 20 s): a call gives up when the engine doesn't finish the next piece of text
-  (~2,000 characters, normally well under a second) for that long. A very long text on a slow phone is fine.
-
-Either way the worker is stopped (freeing its memory) and the promise rejects with `timeout`. The next call starts
-fresh.
-
-### Errors
-
-Everything rejects with `AnalyzerError`, which has a `code`:
+Every failure is an `AnalyzerError` with a `code`:
 
 | `code` | When |
 |---|---|
-| `not-loaded` | `analyze()` before `load()` |
+| `not-loaded` | `analyze()` / `furigana()` before `load()` |
 | `disposed` | the analyzer was disposed while the call was pending |
-| `unavailable` | `load()`: every engine crashed this tab before (crash guard) |
-| `all-engines-failed` | `load()`: `error.cause` is the list of each engine's error |
+| `unavailable` | `load()`: loading crashed this tab recently (crash guard) |
 | `unsupported-browser` | missing WebAssembly, DecompressionStream (Safari 16.4+) or IndexedDB |
-| `download-failed` | network/HTTP error, including a wrong `dictUrl` |
+| `download-failed` | network/HTTP error, including files not found at `filesUrl` |
 | `checksum-mismatch` | a downloaded part was corrupt |
 | `out-of-memory` | the browser refused the memory (checked before downloading) |
-| `timeout` | `load()` or `analyze()` made no progress for too long |
-| `engine-failed` | the engine failed unexpectedly (e.g. its worker file could not be loaded) |
+| `timeout` | `load()` or a call made no progress for too long |
+| `engine-failed` | Sudachi failed unexpectedly (e.g. its worker file could not be loaded) |
 | `worker-crashed` | the worker died after loading |
 
-## 8. Text helpers: `jp-analyzer/text`
+## 9. Text helpers: `wakachi/text`
 
-Pure functions that take `Morpheme`s from any engine.
+Pure functions on the results of `analyze()`:
 
 ```js
-import { furigana, groupBunsetsu, splitSentences, toHiragana, posLabel } from "jp-analyzer/text";
+import { furigana, groupBunsetsu, splitSentences, toHiragana, posLabel } from "wakachi/text";
 
-furigana(m);             // 食べ (タベ) → [{ text: "食", reading: "た" }, { text: "べ" }]
+furigana(word);          // 食べ (タベ) → [{ text: "食", reading: "た" }, { text: "べ" }]
 groupBunsetsu(words);    // → [{ morphemes, head, headDictionaryForm, start, end }, ...]
 splitSentences(text);    // keeps 「行こう！」と彼は言った。 as one sentence
 toHiragana("ネコ");       // "ねこ"
-posLabel(m, "en");       // "Verb, general" ("ja" → "動詞・一般")
+posLabel(word, "en");    // "Verb, general" ("ja" → "動詞・一般")
 ```
 
-`groupBunsetsu` is approximate (part-of-speech rules). Compound nouns and some verb chains occasionally split
-or merge oddly.
+`groupBunsetsu` is approximate (part-of-speech rules): compound nouns and some verb chains occasionally split or
+merge oddly.
 
-## 9. Memory on iPhone Safari
+## 10. Memory on iPhone Safari
 
-- Sudachi uses about **150 MB** while loaded; lindera/IPADIC about **130 MB**. While loading, add about one
-  dictionary part (≤ 20 MB).
-- iOS has no fixed per-tab limit. Reported crash points are around 1.5 GB (iPhone 12 Pro) to 3 GB (iPhone 15 Pro)
-  for the **whole page**, lower on older phones and when other apps use memory.
-- So the risk is everything on the page together. Don't load the dictionary at the same moment as other big things
-  (e.g. a TTS voice model); load one, then the other.
+- Sudachi uses about **150 MB** while loaded, plus about one dictionary part (≤ 20 MB) while loading.
+- iOS has no fixed per-tab limit. Reported crash points are around 1.5 GB (iPhone 12 Pro) to 3 GB (iPhone 15 Pro) for
+  the **whole page**, lower on older phones and when other apps use memory.
+- The risk is everything on the page together. With a voice (e.g. yomiage) on the same page, load one, then the
+  other, not both at the same moment.
 - Every tab of your site loads its own copy.
-- The cached dictionary takes ~43 MB of storage (compressed parts). Safari may delete it after 7 days without a
-  visit (not for Home Screen apps) or when the phone is low on space; `load()` then downloads it again.
+- The dictionary takes ~43 MB of storage. Safari may delete it after 7 days without a visit (not for Home Screen
+  apps) or when the phone is low on space; `load()` then downloads it again (`info()` tells you beforehand).
 
-## 10. Bundlers
+## 11. Bundlers
 
-The worker is created with `new Worker(new URL("./worker.js", import.meta.url), { type: "module" })`, which
-Vite, webpack 5, esbuild and Parcel handle automatically. No setup needed.
+The worker is created with `new Worker(new URL("./worker.js", import.meta.url), { type: "module" })`, which Vite,
+webpack 5, esbuild and Parcel handle automatically. No setup needed.
 
 ---
 
 ## Status
 
-**Built and tested** (plain JavaScript for now; to be converted to TypeScript when the package gets a build step):
-`createAnalyzer` with everything in §2–§7, the Sudachi engine, and `copy-dict sudachi`.
+The code is plain JavaScript in `packages/jp-analyzer` (TypeScript and a build step come with the move to its own
+repository). The shared plumbing — download in parts, cache, worker host, crash guard — will move into **kakera**,
+which is bundled into wakachi at build time (app developers never install it).
 
-| File | What it does |
+**Built and tested:** loading in parts with the memory fix, the worker, input splitting, the URL/emoji protection,
+original surfaces, crash guard, timeouts, idle/hidden stop, cancelling, error codes.
+
+**Where the code still differs from this page:**
+
+| This page | Code today |
 |---|---|
-| [src/index.js](src/index.js) | `createAnalyzer`: shared engines, crash guard, timeouts, idle/hidden stop, fallback |
-| [src/engines/sudachi.js](src/engines/sudachi.js) | `sudachi({ dictUrl })` |
-| [src/engines/sudachi-worker.js](src/engines/sudachi-worker.js) | Sudachi worker: program first, then the dictionary written into its memory |
-| [src/engines/sudachi-analyze.js](src/engines/sudachi-analyze.js) | Sudachi output → `Morpheme`s; protection against its crashes and rewritten characters |
-| [src/engines/sudachi-pos.js](src/engines/sudachi-pos.js) | Sudachi tags → engine-neutral `pos` and `tags` |
-| [src/split-input.js](src/split-input.js) | Splits long input into ≤ 2,000-character pieces at sentence ends |
-| [src/dict-store.js](src/dict-store.js) | Download, checksum, IndexedDB cache of compressed parts, streaming into engine memory |
-| [bin/jp-analyzer.mjs](bin/jp-analyzer.mjs), [bin/split-wasm.mjs](bin/split-wasm.mjs) | `copy-dict sudachi <dir>`: program + gzip parts + manifest |
+| `createAnalyzer()`, `filesUrl` (default `/wakachi/`) | `createAnalyzer({ engines: [sudachi({ dictUrl })] })`, with engine fallback |
+| `wakachi copy-files <dir>` (downloads from the release) | `jp-analyzer copy-dict sudachi <dir> [--source]` (builds from the npm Sudachi) |
+| `info()`, `furigana()` | `isCached()` + `downloadSize()`; no `furigana()` yet |
+| `load()` resolves `{ fromCache }` | resolves `{ engine, fromCache, skipped }` |
+| `readings`, `everydayReadings` (§6) | not built |
+| `wakachi/text` (§9) | still in the playground's `src/furigana.js` |
+| `all-engines-failed` removed | still there for the engine list |
+| `unload()` frees the memory (same name as in yomiage, where `stop()` stops sound) | `stop()` |
 
-Tests:
-
-| File | What it checks |
+| Test | What it checks |
 |---|---|
-| [test/analyze.test.mjs](test/analyze.test.mjs) | Node: input splitting, offsets, pos/tags, URL/emoji crash protection, rewritten characters, flat memory on long text |
+| [test/analyze.test.mjs](test/analyze.test.mjs) | Node: input splitting, offsets, pos/tags, URL/emoji protection, rewritten characters, flat memory |
 | [test/verify-split.mjs](test/verify-split.mjs) | Node: the split Sudachi gives output identical to the original |
-| [test/analyzer.html](test/analyzer.html) | Browser: the whole `createAnalyzer` API, incl. shared engines, timeouts, idle/hidden stop, fallback, crash guard |
-| [test/memory.html](test/memory.html) | Browser/iPhone: compares the old and new loading methods, with Web Inspector steps |
+| [test/analyzer.html](test/analyzer.html) | Browser: shared Sudachi, timeouts, idle/hidden stop, crash guard (incl. a simulated crash) |
+| [test/memory.html](test/memory.html) | Browser/iPhone: old vs new loading, with Web Inspector steps |
 
-Results so far: all tests pass in Chrome; first load 0.7 s, from cache 0.5 s. **Still to do:** run on a real iPhone.
-
-To try it (from the repository root):
+All pass in Chrome; first load 0.7 s, from the device 0.5 s. **Not yet tested on a real iPhone.**
 
 ```bash
 node packages/jp-analyzer/bin/jp-analyzer.mjs copy-dict sudachi packages/jp-analyzer/test/dict --source models/sudachi/sudachi.wasm
 node --test packages/jp-analyzer/test/analyze.test.mjs
-python3 serve.py 8080     # then open /packages/jp-analyzer/test/analyzer.html and /packages/jp-analyzer/test/memory.html
+python3 serve.py 8080     # then open /packages/jp-analyzer/test/analyzer.html
 ```
-
-**Not built yet:** the text helpers (§8, today in `src/furigana.js` of the playground), the `ipadic` engine, the React
-wrapper, and switching the playground over to the package.
