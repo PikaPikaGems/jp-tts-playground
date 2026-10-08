@@ -15,8 +15,9 @@ and shows it with furigana, bunsetsu grouping, part-of-speech colours and a dict
   presets (Original, Soft, Low, Deep, Deeper; Soft is the default) on top of the Tsukuyomi-chan voice, plus a
   *breathiness reduction* filter. The presets were picked by ear in `voice-lab.html`; large shifts still sound less
   clean than the original voice.
-- **Reading view** ([Sudachi](https://github.com/WorksApplications/sudachi.rs) in WebAssembly): furigana on kanji
-  (always, or on hover/tap), a space between bunsetsu, main words coloured by part of speech, and a popover with the
+- **Reading view** through [wakachi](https://github.com/PikaPikaGems/wakachi), our package that runs
+  [Sudachi](https://github.com/WorksApplications/sudachi.rs) (WebAssembly) in a Web Worker, with everyday readings
+  (私 わたし, 明日 あした, numbers like 10月 じゅうがつ): furigana on kanji (always, or on hover/tap), a space between bunsetsu, main words coloured by part of speech, and a popover with the
   dictionary form, the parts of each phrase (Japanese and English tag names) and 🔊 buttons for the word and the phrase.
 - **Study mode**: one line per sentence, each with a 🔊 button (selected speed) and a 🐢 button (slow: 0.75x the selected speed).
 - **Sentences with no Japanese** (e.g. English) are detected: read them (piper-plus in its English mode) or skip them.
@@ -28,17 +29,17 @@ and shows it with furigana, bunsetsu grouping, part-of-speech colours and a dict
 Needs Node 22+ and Python 3.
 
 ```bash
-npm install              # needs the yomiage repository checked out next to this one (../yomiage, built), see below
-npm run fetch-assets     # downloads the Sudachi binary into models/ (git-ignored)
-npm start                # copies yomiage's voice files into yomiage/, then serves http://localhost:8080
+npm install              # needs yomiage and wakachi checked out next to this one (../yomiage, ../wakachi, built), see below
+npm start                # copies their files into yomiage/ and wakachi/, then serves http://localhost:8080
 ```
 
-**yomiage** is installed from the folder next to this one (`"yomiage": "file:../yomiage"`) and its voice files come
-from `../yomiage/files` (`npm run yomiage:files`; in yomiage: `npm install && npm run build && npm run files`).
-yomiage is private for now; once it has a GitHub release, both will come from there instead.
+**yomiage** and **wakachi** are installed from the folders next to this one (`"yomiage": "file:../yomiage"`,
+`"wakachi": "file:../wakachi"`), and their files come from `../yomiage/files` and `../wakachi/files` (`npm run files`;
+in each package: `npm install && npm run build && npm run files`). Once they have GitHub releases, both will come
+from there instead.
 
 Open http://localhost:8080, press **Load model** in the piper-plus panel, then **Speak**. Press **Load analyzer** in the
-reading view (the first time this downloads ~42 MB; afterwards it comes from your browser's IndexedDB cache).
+reading view (the first time this downloads 44 MB; afterwards it comes from your browser's IndexedDB cache).
 
 ## Style-BERT-VITS2 panel (optional, local only)
 
@@ -74,7 +75,7 @@ Notes:
 ## Build and deploy the static site
 
 ```bash
-npm run build:deploy     # writes deploy/ : the page, yomiage and its voice files, Sudachi split into parts
+npm run build:deploy     # writes deploy/ : the page, yomiage and wakachi with their files
 npm run serve:deploy     # test exactly what will be published at http://localhost:8090
 ```
 
@@ -82,20 +83,21 @@ npm run serve:deploy     # test exactly what will be published at http://localho
 detects this (`src/paths.js`) and hides that panel.
 
 **How big files are handled.** Static hosts limit file size (GitHub blocks pushes over 100 MB, Cloudflare Pages
-rejects files over 25 MiB), so the build splits every large file into parts of at most 20 MiB plus a `manifest.json`:
+rejects files over 25 MiB), so yomiage and wakachi ship their files in parts of at most 20 MB plus a `manifest.json`,
+and the build copies them as they are:
 
-| File | Size | Stored as |
+| Files | Size | Stored as |
 |---|---|---|
-| Sudachi binary (dictionary inside) | 117.5 MiB | 3 gzip parts (42 MiB) |
-| Voice (yomiage: model, phonemizer, ONNX Runtime) | 109 MB | yomiage's own parts (65 MB), copied as they are into `yomiage/` |
+| Dictionary (wakachi: Sudachi program + SudachiDict) | 117.5 MiB | gzip parts (44 MB) in `wakachi/` |
+| Voice (yomiage: model, phonemizer, ONNX Runtime) | 109 MB | parts (65 MB) in `yomiage/` |
 
-At run time `src/chunks.js` (Sudachi) and yomiage download the parts, unzip them in a stream, check the SHA-256 from
-the manifest and keep them in IndexedDB, so later visits download nothing. The build **fails if any file exceeds 25 MiB**.
+At run time the packages download the parts, unzip them in a stream, check the SHA-256 from the manifest and keep them
+in IndexedDB, so later visits download nothing. The build **fails if any file exceeds 25 MiB**.
 
 ### GitHub Pages
 
 This repository publishes `deploy/` from the `gh-pages` branch (Settings → Pages → Deploy from a branch → `gh-pages`,
-`/ (root)`). The `main` branch holds only source; large files come from `npm run fetch-assets`.
+`/ (root)`). The `main` branch holds only source; large files come from `npm run files`.
 
 ```bash
 npm run build:deploy && npm run publish:gh-pages    # clones gh-pages, replaces its files, commits, pushes
@@ -111,31 +113,26 @@ project at the `gh-pages` branch with no build command and `/` as the output dir
 
 - The page needs iOS/Safari **16.4+** (import maps and WebAssembly SIMD). Older browsers see a "please update" banner.
 - Audio (and the browser voice) can only start from a tap on iOS; the Speak buttons unlock it inside the tap.
-- Safari can delete a site's stored data after about 7 days without a visit, which would remove the cached Sudachi file
-  (it simply downloads again). Adding the page to the Home Screen avoids that.
-- The analyzer uses roughly 400 MB of RAM and stops itself after 60 s idle (`?idle=N` changes the delay, in seconds).
+- Safari can delete a site's stored data after about 7 days without a visit, which would remove the cached dictionary
+  and voice (they simply download again). Adding the page to the Home Screen avoids that.
+- The analyzer uses about 150 MB of RAM and frees it after 60 s idle (`?idle=N` changes the delay, in seconds).
 - Not yet tested on real iOS hardware.
 
 ## Project layout
 
 ```
 index.html, app.js, style.css     the page
-src/furigana.js                   bunsetsu grouping, furigana alignment, sentence splitting (pure functions)
 src/psola.js                      pitch / formant shifting (PSOLA), used by the Style-BERT-VITS2 panel (yomiage has its own copy)
 src/voicefx.js                    breathiness filter (Style-BERT-VITS2 panel)
 voice-lab.html, src/voice-lab.js  compares yomiage's voice presets side by side (local development only)
-yomiage/                          yomiage's voice files and engine worker (`npm run yomiage:files`, git-ignored)
+yomiage/, wakachi/                the packages' files and workers (`npm run files`, git-ignored)
 scripts/test-psola.mjs            checks the pitch shifting on a synthetic voice
-src/chunks.js                     loads split files: parts -> gunzip -> SHA-256 check -> IndexedDB cache
-src/sudachi-worker.js             Web Worker: loads Sudachi and tokenises
-src/sudachi-glue.js               wasm-bindgen glue for the Sudachi binary
-src/paths.js                      where libraries and models live (dev vs. deploy)
+src/paths.js                      dev vs. deploy (whether the Style-BERT-VITS2 panel exists)
 src/sbv2-*.js, build.mjs          optional Style-BERT-VITS2 worker (local only)
-scripts/fetch-assets.mjs          downloads Sudachi, optionally Style-BERT-VITS2
-scripts/build-deploy.mjs          builds deploy/ (splits big files)
+scripts/fetch-assets.mjs          downloads the Style-BERT-VITS2 files
+scripts/build-deploy.mjs          builds deploy/
 scripts/publish-gh-pages.mjs      pushes deploy/ to the gh-pages branch
 serve.py                          tiny static server: python3 serve.py [port] [directory]
-packages/jp-analyzer/             work in progress: reusable Sudachi package with lower memory use (see its API.md)
 ```
 
 ## Credits and licences

@@ -95,3 +95,6 @@ button:disabled { cursor: not-allowed; opacity: .5; }
 .loading { margin: 6px 0; }
 .loading progress { width: 100%; }
 .loading .step { opacity: .6; }
+
+#reader-progress { display: block; width: 100%; margin: 6px 0; }
+#reader-progress[hidden] { display: none; }

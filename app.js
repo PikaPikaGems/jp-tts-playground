@@ -2,9 +2,14 @@ import { createVoice, toWav, PRESETS, DEFAULTS } from "yomiage";
 import { PATHS } from "./src/paths.js";
 import { reduceBreathiness } from "./src/voicefx.js?v=34";
 import { shiftVoicePsola, VOICE_SHIFT } from "./src/psola.js?v=34";
-import { groupBunsetsu, rubySegments, posLabel, posLabelEn, posColorKey, splitStudySentences } from "./src/furigana.js?v=33";
+import { createAnalyzer } from "wakachi";
+import { furigana, groupBunsetsu, posLabel, splitSentences as wakachiSentences } from "wakachi/text";
 
 const $ = (id) => document.getElementById(id);
+
+/** Sentences for study mode and speaking: wakachi's split, without pieces that have no letters or digits. */
+const HAS_WORD = /[\p{L}\p{N}]/u;
+const studySentences = (text) => wakachiSentences(text).map((s) => s.text).filter((t) => HAS_WORD.test(t));
 
 // ------------------------------------------------------------ sentence split
 // Split on sentence enders / newlines; break overlong sentences at 、 so each
@@ -12,7 +17,7 @@ const $ = (id) => document.getElementById(id);
 const MAX_CHARS = 40;
 function splitSentences(text) {
   const out = [];
-  for (const s of splitStudySentences(text)) { // sentence boundaries incl. English "." (shared with study mode)
+  for (const s of studySentences(text)) { // sentence boundaries incl. English "." (shared with study mode)
     if (s.length <= MAX_CHARS) { out.push(s); continue; }
     let buf = "";
     for (const part of s.match(/[^、，,]+[、，,]?/g) ?? [s]) {
@@ -414,35 +419,38 @@ both.addEventListener("click", async () => {
   refreshBoth();
 });
 
-// ---------------------------------------------------- reading view (Sudachi)
-// Furigana + bunsetsu spacing + dictionary-form popover for whatever is in the shared textarea.
-// The analyzer holds ~400 MB, so its worker is stopped after IDLE_SECONDS without use and transparently reloaded
-// (from the IndexedDB cache, ~0.3 s) on the next edit. `?idle=5` in the URL shortens the delay for testing.
+// ---------------------------------------------------- reading view (wakachi)
+// Furigana + bunsetsu spacing + dictionary-form popover for whatever is in the shared textarea. wakachi runs Sudachi
+// in a worker, frees its memory after idleTimeout without use and reloads it from the device on the next edit by
+// itself. `?idle=5` in the URL shortens the delay for testing.
 const IDLE_MS = Number(new URLSearchParams(location.search).get("idle") ?? 60) * 1000;
-const reader = { worker: null, ready: false, wanted: false, loading: null, nextId: 1, pending: new Map(), seq: 0, timer: null, idleTimer: null };
+const analyzer = createAnalyzer({ filesUrl: "./wakachi/", idleTimeout: IDLE_MS });
+const reader = { wanted: false, seq: 0, timer: null, ctrl: null };
 const readerStatus = (m) => { $("reader-status").textContent = m; };
 const readerLog = (m) => { const el = $("reader-log"); el.textContent += m + "\n"; el.scrollTop = el.scrollHeight; };
+const READY_HINT = "Analyzer ready. Hover or click a bunsetsu for its dictionary form.";
+analyzer.on("status", (s) => {
+  if (s === "stopped" && reader.wanted) {
+    readerLog(`Analyzer stopped after ${IDLE_MS / 1000}s idle to free memory. It reloads from the device on your next edit.`);
+    readerStatus("Analyzer stopped (idle) - edit the text to wake it. Hover or click a bunsetsu for its dictionary form.");
+  }
+  if (s === "ready" && reader.wanted) readerStatus(READY_HINT);
+});
+analyzer.on("progress", (p) => {
+  $("reader-progress").hidden = p.stage === "ready";
+  $("reader-progress").value = p.fraction;
+  if (p.stage === "downloading") readerStatus(`Downloading the dictionary… ${(p.loaded / 1e6).toFixed(0)} / ${(p.total / 1e6).toFixed(0)} MB`);
+  else if (p.stage === "preparing") readerStatus(`Preparing the dictionary… ${Math.round(p.fraction * 100)}%`);
+});
 
-function readerCall(msg, onLog) {
-  reader.worker ??= (() => {
-    const w = new Worker("./src/sudachi-worker.js?v=33", { type: "module" });
-    w.onmessage = ({ data }) => {
-      const p = reader.pending.get(data.id);
-      if (!p) return;
-      if (data.type === "log") p.onLog?.(data.msg);
-      else { reader.pending.delete(data.id); data.type === "error" ? p.reject(new Error(data.message)) : p.resolve(data); }
-    };
-    w.onerror = (e) => { for (const p of reader.pending.values()) p.reject(new Error(e.message || "worker crashed")); reader.pending.clear(); };
-    return w;
-  })();
-  const id = reader.nextId++;
-  return new Promise((resolve, reject) => { reader.pending.set(id, { resolve, reject, onLog }); reader.worker.postMessage({ id, ...msg }); });
-}
+// colour key for a head word, by wakachi's part of speech (null = no colour)
+const POS_COLOR = { noun: "noun", pronoun: "pronoun", verb: "verb", adjective: "adj", "adjectival-noun": "adjnoun",
+  adverb: "adverb", adnominal: "adnominal", conjunction: "conj", interjection: "interj" };
 
 function renderReader(lines, sentences = null) {
   const out = $("reader-out");
   out.replaceChildren();
-  for (const [idx, morphs] of lines.entries()) {
+  for (const [idx, words] of lines.entries()) {
     const line = document.createElement("div");
     line.className = sentences ? "line study" : "line";
     if (sentences?.[idx]) {
@@ -462,34 +470,32 @@ function renderReader(lines, sentences = null) {
         line.append(say);
       }
     }
-    if (morphs) {
-      for (const group of groupBunsetsu(morphs)) {
-        const span = document.createElement("span");
-        span.className = "bun";
-        span.tabIndex = 0;
-        for (const m of group.morphs) {
-          const part = document.createElement("span"); // main word(s) of the bunsetsu get their own colour
-          if (group.head.includes(m)) {
-            // colour by the part of speech of the main word (a leading prefix shares its word's colour)
-            const key = posColorKey(group.head[group.head.length - 1].pos[0]);
-            part.className = "head";
-            if (key) part.dataset.pos = key;
-          }
-          for (const seg of rubySegments(m.surface, m.reading)) {
-            if (seg.r) {
-              const ruby = document.createElement("ruby");
-              ruby.append(seg.t);
-              const rt = document.createElement("rt");
-              rt.textContent = seg.r;
-              ruby.append(rt);
-              part.append(ruby);
-            } else part.append(seg.t);
-          }
-          span.append(part);
+    for (const group of groupBunsetsu(words)) {
+      const span = document.createElement("span");
+      span.className = "bun";
+      span.tabIndex = 0;
+      for (const w of group.morphemes) {
+        const part = document.createElement("span"); // main word(s) of the bunsetsu get their own colour
+        if (group.head.includes(w)) {
+          // colour by the part of speech of the main word (a leading prefix shares its word's colour)
+          const key = POS_COLOR[group.head.at(-1).pos];
+          part.className = "head";
+          if (key) part.dataset.pos = key;
         }
-        span._group = group;
-        line.append(span);
+        for (const seg of furigana(w)) {
+          if (seg.reading) {
+            const ruby = document.createElement("ruby");
+            ruby.append(seg.text);
+            const rt = document.createElement("rt");
+            rt.textContent = seg.reading;
+            ruby.append(rt);
+            part.append(ruby);
+          } else part.append(seg.text);
+        }
+        span.append(part);
       }
+      span._group = group;
+      line.append(span);
     }
     out.append(line);
   }
@@ -505,9 +511,9 @@ const scheduleHide = () => { if (pinned) return; cancelHide(); hideTimer = setTi
 const HAS_TEXT = /[\p{L}\p{N}]/u;
 /** The phrase as written, without trailing punctuation (so the voice doesn't pause on a trailing 、). */
 function phraseText(g) {
-  const ms = [...g.morphs];
-  while (ms.length > 1 && ["補助記号", "記号"].includes(ms[ms.length - 1].pos[0])) ms.pop();
-  return ms.map((m) => m.surface).join("");
+  const ws = [...g.morphemes];
+  while (ws.length > 1 && ["punctuation", "symbol"].includes(ws.at(-1).pos)) ws.pop();
+  return ws.map((w) => w.surface).join("");
 }
 
 let shownSpan = null; // phrase whose popover is open: keep its furigana visible even in hover-only mode
@@ -521,12 +527,12 @@ function showPop(span) {
   const lbl = (t) => { const d = document.createElement("div"); d.className = "lbl"; d.textContent = t; return d; };
   const dict = document.createElement("div");
   dict.className = "dict";
-  dict.textContent = g.headDict;
+  dict.textContent = g.headDictionaryForm;
   pop.append(lbl("Dictionary form"), dict);
   // 🔊 buttons: the main word (spoken in dictionary form, e.g. 歩い → 歩く) and the whole phrase as written
   const actions = document.createElement("div");
   actions.className = "pop-actions";
-  for (const [label, text] of [["Word", g.headDict], ["Phrase", phraseText(g)]]) {
+  for (const [label, text] of [["Word", g.headDictionaryForm], ["Phrase", phraseText(g)]]) {
     if (!HAS_TEXT.test(text)) continue;
     const b = document.createElement("button");
     b.type = "button";
@@ -539,15 +545,15 @@ function showPop(span) {
   const msg = document.createElement("div");
   msg.className = "pop-msg";
   pop.append(actions, msg);
-  const normHead = g.head.map((m) => m.norm || m.surface).join("");
-  if (normHead !== g.headDict) pop.append(lbl(`Normalized: ${normHead}`));
+  const normHead = g.head.map((w) => w.normalizedForm || w.surface).join("");
+  if (normHead !== g.headDictionaryForm) pop.append(lbl(`Normalized: ${normHead}`));
   const ul = document.createElement("ul");
-  for (const m of g.morphs) {
+  for (const w of g.morphemes) {
     const li = document.createElement("li");
-    li.append(`${m.surface} → ${m.dict || m.surface} `);
+    li.append(`${w.surface} → ${w.dictionaryForm || w.surface} `);
     const pos = document.createElement("div");
     pos.className = "pos";
-    pos.textContent = `${posLabel(m.pos)} — ${posLabelEn(m.pos)}`;
+    pos.textContent = `${posLabel(w, "ja")} — ${posLabel(w)}`;
     li.append(pos);
     ul.append(li);
   }
@@ -581,64 +587,42 @@ readerOut.addEventListener("click", (e) => {
 document.addEventListener("click", (e) => { if (pinned && !e.target.closest("#pop")) hidePop(); });
 document.addEventListener("keydown", (e) => { if (e.key === "Escape") hidePop(); });
 
-function stopReader() {
-  clearTimeout(reader.idleTimer);
-  reader.worker?.terminate();
-  reader.worker = null;
-  reader.ready = false;
-  for (const p of reader.pending.values()) p.reject(new Error("analyzer stopped"));
-  reader.pending.clear();
-  readerLog(`Analyzer stopped after ${IDLE_MS / 1000}s idle to free memory. It reloads from the cache on your next edit.`);
-  readerStatus("Analyzer stopped (idle) - edit the text to wake it. Hover or click a bunsetsu for its dictionary form.");
-}
-const armIdleTimer = () => { clearTimeout(reader.idleTimer); reader.idleTimer = setTimeout(stopReader, IDLE_MS); };
-
-// Load the wasm into a fresh worker (downloads on the very first run, IndexedDB cache afterwards).
-function startReader() {
-  reader.loading ??= (async () => {
-    try {
-      readerStatus("Loading analyzer...");
-      const t0 = performance.now();
-      await readerCall({ type: "load", manifestUrl: new URL(PATHS.sudachiManifest, location.href).href, rawUrl: new URL(PATHS.sudachiRaw, location.href).href }, readerLog);
-      reader.ready = true;
-      readerLog(`Ready (${((performance.now() - t0) / 1000).toFixed(1)}s).`);
-      readerStatus("Analyzer ready. Hover or click a bunsetsu for its dictionary form.");
-    } finally { reader.loading = null; }
-  })();
-  return reader.loading;
-}
-
 async function refreshReader() {
   if (!reader.wanted) return; // user hasn't clicked "Load analyzer" yet
   const mySeq = ++reader.seq;
+  reader.ctrl?.abort(); // a newer edit replaces the previous analysis
+  const ctrl = (reader.ctrl = new AbortController());
   try {
-    if (!reader.ready) await startReader();
-    if (mySeq !== reader.seq) return;
     // Study mode analyzes one sentence per line so every line gets its own 🔊 button.
-    const sentences = $("study-mode").checked ? splitStudySentences($("text").value) : null;
-    const { lines } = await readerCall({ type: "analyze", text: sentences ? sentences.join("\n") : $("text").value });
-    if (mySeq !== reader.seq) return; // a newer edit superseded this one
+    const sentences = $("study-mode").checked ? studySentences($("text").value) : null;
+    const lines = sentences ?? $("text").value.split("\n");
+    const results = await analyzer.analyzeMany(lines, { signal: ctrl.signal });
+    if (mySeq !== reader.seq) return;
     hidePop();
-    renderReader(lines, sentences);
-    armIdleTimer();
-  } catch (err) { if (mySeq === reader.seq) { readerLog(`ERROR analyzing: ${err.message}`); console.error(err); } }
+    renderReader(results, sentences);
+  } catch (err) {
+    if (err.name !== "AbortError" && mySeq === reader.seq) { readerLog(`ERROR analyzing: ${err.code ?? err.name}: ${err.message}`); console.error(err); }
+  }
 }
 $("text").addEventListener("input", () => { clearTimeout(reader.timer); reader.timer = setTimeout(refreshReader, 300); });
 
 $("reader-load").addEventListener("click", async () => {
   const btn = $("reader-load");
   btn.disabled = true;
-  reader.wanted = true;
   try {
-    // Ask the browser not to evict the cached dictionary (Safari otherwise purges after ~7 days without a visit).
-    try { readerLog(`Persistent storage: ${(await navigator.storage?.persist?.()) ? "granted" : "not granted (cache may be evicted; on iOS add the page to the Home Screen)"}`); } catch {}
-    await startReader();
+    readerStatus("Loading analyzer...");
+    const { fromCache, ms } = await analyzer.load();
+    reader.wanted = true;
+    readerLog(`Ready (${((ms ?? 0) / 1000).toFixed(1)}s, ${fromCache ? "from this device" : "downloaded"}).`);
+    readerStatus(READY_HINT);
     await refreshReader();
   } catch (err) {
-    readerLog(`ERROR loading: ${err.message}`);
+    readerLog(`ERROR loading: ${err.code ?? err.name}: ${err.message}`);
+    readerStatus(err.code === "unavailable" ? "The analyzer crashed this tab before, so it isn't loaded again for a few days." : "Could not load the analyzer (see the log).");
     console.error(err);
   } finally { btn.disabled = false; }
 });
+analyzer.on("log", (m) => readerLog(m));
 
 
 // ---- study mode: 🔊 per sentence (uses piper if loaded, else Style-Bert-VITS2, with that panel's voice settings)

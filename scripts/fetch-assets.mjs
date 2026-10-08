@@ -1,18 +1,12 @@
-// Downloads the large files that are NOT stored in git (see .gitignore): the Sudachi binary and, optionally, the
-// Style-BERT-VITS2 files. (The piper-plus voice comes with yomiage: `npm run yomiage:files`.)
+// Downloads the Style-BERT-VITS2 files (~500 MB, not stored in git; see .gitignore) for the local-only panel.
+// The other models come with their packages: `npm run files` (yomiage's voice, wakachi's dictionary).
 //
-//   npm run fetch-assets            Sudachi                               (a 164 MB npm package, 118 MB kept)
-//   npm run fetch-assets:sbv2       ...plus the Style-BERT-VITS2 files    (~+500 MB)
-//   add --force to re-download files that already exist
-import { execFileSync } from "node:child_process";
-import crypto from "node:crypto";
+//   npm run fetch-assets:sbv2       add --force to re-download files that already exist
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 
 const ROOT = path.resolve(import.meta.dirname, "..");
 const FORCE = process.argv.includes("--force");
-const SBV2 = process.argv.includes("--sbv2");
 const HF = "https://huggingface.co";
 
 const rel = (p) => path.relative(ROOT, p);
@@ -35,39 +29,9 @@ async function download(url, dest) {
   fs.renameSync(tmp, dest);
   console.log(`\r  saved ${rel(dest)} (${(got / 1048576).toFixed(1)} MB)          `);
 }
-const sha256 = (buf) => crypto.createHash("sha256").update(buf).digest("hex");
-
-// The piper-plus voice (tsukuyomi-chan) comes with yomiage: `npm run yomiage:files`.
-
-// ---- Sudachi (wasm extracted from the npm package) ------------------------------------------------------------
-console.log("Sudachi");
-const SUDACHI_SHA256 = "c1485e172eb74e07c487ef8e0ed43044ec7424281cca3784dd2e81182f45dc8e";
-const sudachiDest = path.join(ROOT, "models/sudachi/sudachi.wasm");
-if (!FORCE && fs.existsSync(sudachiDest)) console.log(`  have  ${rel(sudachiDest)}`);
-else {
-  // The npm file `sudachi.js` is wasm-bindgen glue followed by the whole binary as one base64 string. The glue is
-  // already committed as src/sudachi-glue.js; here we only need the binary.
-  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "sudachi-"));
-  console.log("  npm pack sudachi@0.1.5 (a 164 MB download)...");
-  execFileSync("npm", ["pack", "sudachi@0.1.5", "--pack-destination", tmp, "--silent"], { stdio: "inherit" });
-  execFileSync("tar", ["-xzf", path.join(tmp, "sudachi-0.1.5.tgz"), "-C", tmp]);
-  const js = fs.readFileSync(path.join(tmp, "package/sudachi.js"));
-  const marker = Buffer.from("const wasmBASE64 = '");
-  const start = js.indexOf(marker) + marker.length;
-  const end = js.indexOf(Buffer.from("';"), start);
-  if (start < marker.length || end < 0) throw new Error("could not find the embedded wasm in sudachi.js (package layout changed?)");
-  const wasm = Buffer.from(js.subarray(start, end).toString("latin1"), "base64");
-  const hash = sha256(wasm);
-  if (hash !== SUDACHI_SHA256) console.warn(`  WARNING: sha256 ${hash} differs from the version this project was built with`);
-  fs.mkdirSync(path.dirname(sudachiDest), { recursive: true });
-  fs.writeFileSync(sudachiDest, wasm);
-  fs.copyFileSync(path.join(tmp, "package/LICENSE"), path.join(ROOT, "models/sudachi/LICENSE-Apache-2.0.txt"));
-  fs.rmSync(tmp, { recursive: true, force: true });
-  console.log(`  saved ${rel(sudachiDest)} (${(wasm.length / 1048576).toFixed(1)} MB)`);
-}
 
 // ---- Style-BERT-VITS2 (optional, local only) -------------------------------------------------------------------------
-if (SBV2) {
+{
   console.log("Style-BERT-VITS2 (local-only panel)");
   const acoustic = path.join(ROOT, "models/sbv2-tsukuyomi");
   await download(`${HF}/googlefan/sbv2_onnx_models/resolve/main/model_tsukuyomi.onnx`, path.join(acoustic, "model.onnx"));

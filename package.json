@@ -1,24 +1,26 @@
 {
   "name": "jp-tts-playground",
   "version": "0.1.0",
-  "description": "In-browser Japanese text-to-speech playground (piper-plus) with a Sudachi reading view: furigana, bunsetsu, study mode.",
+  "description": "In-browser Japanese text-to-speech playground (yomiage) with a reading view (wakachi): furigana, bunsetsu, study mode.",
   "scripts": {
-    "prestart": "npm run yomiage:files",
+    "prestart": "npm run files",
     "start": "python3 serve.py 8080",
-    "fetch-assets": "node scripts/fetch-assets.mjs",
-    "fetch-assets:sbv2": "node scripts/fetch-assets.mjs --sbv2",
+    "files": "npm run yomiage:files && npm run wakachi:files",
+    "yomiage:files": "yomiage copy-files yomiage --from ../yomiage/files",
+    "wakachi:files": "wakachi copy-files wakachi --from ../wakachi/files",
+    "fetch-assets:sbv2": "node scripts/fetch-assets.mjs",
     "build:sbv2": "node build.mjs",
-    "prebuild:deploy": "npm run yomiage:files",
+    "prebuild:deploy": "npm run files",
     "build:deploy": "node scripts/build-deploy.mjs",
     "serve:deploy": "python3 serve.py 8090 deploy",
-    "publish:gh-pages": "node scripts/publish-gh-pages.mjs",
-    "yomiage:files": "yomiage copy-files yomiage --from ../yomiage/files"
+    "publish:gh-pages": "node scripts/publish-gh-pages.mjs"
   },
   "dependencies": {
     "@jsr/hdae__fetch-cache": "^0.8.0",
     "@jsr/hdae__sbv2-web": "^0.4.1",
     "@jsr/hdae__yomi": "^0.4.2",
-    "yomiage": "file:../yomiage"
+    "yomiage": "file:../yomiage",
+    "wakachi": "file:../wakachi"
   },
   "devDependencies": {
     "esbuild": "^0.28.2"

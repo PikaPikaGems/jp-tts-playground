@@ -9,7 +9,9 @@
   <script type="importmap">
   {
     "imports": {
-      "yomiage": "./node_modules/yomiage/dist/yomiage.js"
+      "yomiage": "./node_modules/yomiage/dist/yomiage.js",
+      "wakachi": "./node_modules/wakachi/dist/wakachi.js",
+      "wakachi/text": "./node_modules/wakachi/dist/text.js"
     }
   }
   </script>
@@ -35,7 +37,7 @@
     })();
   </script>
   <main>
-    <h1>日本語 TTS <span id="title-engines">— piper-plus vs Style-BERT-VITS2</span> <small style="font-weight:normal;opacity:.5;font-size:.7em">build 35</small></h1>
+    <h1>日本語 TTS <span id="title-engines">— piper-plus vs Style-BERT-VITS2</span> <small style="font-weight:normal;opacity:.5;font-size:.7em">build 36</small></h1>
 
     <label for="text">Text (shared by both engines)</label>
     <textarea id="text" rows="5">こんにちは、今日はいい天気ですね。</textarea>
@@ -128,6 +130,7 @@
       <div class="row">
         <button id="reader-load">Load analyzer</button>
         <span id="reader-status" class="hint">Shows the text above with furigana on kanji and a space between bunsetsu. Hover or click a bunsetsu for its dictionary form.</span>
+        <progress id="reader-progress" max="1" value="0" hidden></progress>
       </div>
       <div class="row">
         <label class="switch"><input type="checkbox" id="study-mode"> <b>Study mode</b>
@@ -168,6 +171,6 @@
     </footer>
   </main>
   <div id="pop" role="tooltip" hidden></div>
-  <script type="module" src="app.js?v=35"></script>
+  <script type="module" src="app.js?v=36"></script>
 </body>
 </html>
