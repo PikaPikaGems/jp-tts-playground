@@ -3,21 +3,22 @@
   "version": "0.1.0",
   "description": "In-browser Japanese text-to-speech playground (piper-plus) with a Sudachi reading view: furigana, bunsetsu, study mode.",
   "scripts": {
+    "prestart": "npm run yomiage:files",
     "start": "python3 serve.py 8080",
     "fetch-assets": "node scripts/fetch-assets.mjs",
     "fetch-assets:sbv2": "node scripts/fetch-assets.mjs --sbv2",
     "build:sbv2": "node build.mjs",
+    "prebuild:deploy": "npm run yomiage:files",
     "build:deploy": "node scripts/build-deploy.mjs",
     "serve:deploy": "python3 serve.py 8090 deploy",
-    "publish:gh-pages": "node scripts/publish-gh-pages.mjs"
+    "publish:gh-pages": "node scripts/publish-gh-pages.mjs",
+    "yomiage:files": "yomiage copy-files yomiage --from ../yomiage/files"
   },
   "dependencies": {
     "@jsr/hdae__fetch-cache": "^0.8.0",
     "@jsr/hdae__sbv2-web": "^0.4.1",
     "@jsr/hdae__yomi": "^0.4.2",
-    "@piper-plus/g2p": "^0.4.2",
-    "onnxruntime-web": "^1.30.0",
-    "piper-plus": "^0.7.0"
+    "yomiage": "file:../yomiage"
   },
   "devDependencies": {
     "esbuild": "^0.28.2"

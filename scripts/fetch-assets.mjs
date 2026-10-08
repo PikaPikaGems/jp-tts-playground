@@ -1,7 +1,7 @@
-// Downloads the large files that are NOT stored in git (see .gitignore): voice models, the Sudachi binary and,
-// optionally, the Style-BERT-VITS2 files.
+// Downloads the large files that are NOT stored in git (see .gitignore): the Sudachi binary and, optionally, the
+// Style-BERT-VITS2 files. (The piper-plus voice comes with yomiage: `npm run yomiage:files`.)
 //
-//   npm run fetch-assets            piper-plus voices + Sudachi           (~200 MB)
+//   npm run fetch-assets            Sudachi                               (a 164 MB npm package, 118 MB kept)
 //   npm run fetch-assets:sbv2       ...plus the Style-BERT-VITS2 files    (~+500 MB)
 //   add --force to re-download files that already exist
 import { execFileSync } from "node:child_process";
@@ -37,17 +37,7 @@ async function download(url, dest) {
 }
 const sha256 = (buf) => crypto.createHash("sha256").update(buf).digest("hex");
 
-// ---- piper-plus voices ------------------------------------------------------------------------------------------
-console.log("piper-plus voices");
-const voices = {
-  tsukuyomi: [`${HF}/ayousanz/piper-plus-tsukuyomi-chan/resolve/main`, "tsukuyomi-chan-6lang-fp16.onnx"],
-  css10: [`${HF}/ayousanz/piper-plus-css10-ja-6lang/resolve/main`, "css10-ja-6lang-fp16.onnx"],
-  mera: [`${HF}/kizuna-intelligence/piper-plus-mera-multilingual/resolve/main`, "mera-multilingual.onnx"],
-};
-for (const [name, [base, onnx]] of Object.entries(voices)) {
-  await download(`${base}/${onnx}`, path.join(ROOT, "models", name, "model.onnx"));
-  await download(`${base}/config.json`, path.join(ROOT, "models", name, "config.json"));
-}
+// The piper-plus voice (tsukuyomi-chan) comes with yomiage: `npm run yomiage:files`.
 
 // ---- Sudachi (wasm extracted from the npm package) ------------------------------------------------------------
 console.log("Sudachi");

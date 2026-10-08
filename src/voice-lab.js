@@ -1,65 +1,31 @@
-// Voice lab (voice-lab.html): tsukuyomi-chan through each of the playground's voice presets, plus a Custom voice
-// (sliders) for trying new settings, with a cleanliness score for each. Local development only (uses the un-split
-// model in models/). The voice change itself is exactly what the playground does (app.js).
-import { PiperPlus } from "piper-plus";
-import * as ort from "onnxruntime-web";
-import { PATHS } from "./paths.js";
-import { patchSpeakerEmbeddingDim } from "./piper-patch.js";
-import { harmonicsToNoise, shiftVoicePsola, VOICE_SHIFT } from "./psola.js";
-import { reduceBreathiness } from "./voicefx.js";
-
-ort.env.wasm.numThreads = 1;
-ort.env.wasm.wasmPaths = new URL(PATHS.ortDist, location.href).href;
-
-const MODEL = "models/tsukuyomi/model.onnx";
+// Voice lab (voice-lab.html): tsukuyomi-chan through each of yomiage's voice presets, plus a Custom voice (sliders)
+// for trying new settings, with a cleanliness score for each. Uses yomiage's synthesize(), so what you hear here is
+// exactly what apps get. The voice files come from ./yomiage/ (`npm run yomiage:files`).
+import { createVoice, toWav, PRESETS } from "yomiage";
+import { harmonicsToNoise } from "./psola.js";
 
 const $ = (id) => document.getElementById(id);
 const log = (msg) => { const el = $("log"); el.textContent += msg + "\n"; el.scrollTop = el.scrollHeight; };
 const status = (msg) => { $("status").textContent = msg; };
-// The heavy steps run on the main thread; give the browser a moment to repaint between them.
-const breathe = () => new Promise((r) => requestAnimationFrame(() => setTimeout(r, 0)));
 addEventListener("error", (e) => status(`Error: ${e.message}`));
 addEventListener("unhandledrejection", (e) => status(`Error: ${e.reason?.message ?? e.reason}`));
 
-// [pitch st, formant st, de-hiss 0..1]; keep in sync with the preset menu in index.html.
+const capital = (w) => w[0].toUpperCase() + w.slice(1);
 const VOICES = [
-  { id: "original", name: "Original", values: [0, 0, 0] },
-  { id: "soft", name: "Soft", values: [-2, -0.5, 0.6] },
-  { id: "low", name: "Low", values: [-6, -1.5, 0.6] },
-  { id: "deep", name: "Deep", values: [-9, -4, 0.6] },
-  { id: "deeper", name: "Deeper", values: [-11, -5.5, 0.6] },
+  ...Object.entries(PRESETS).map(([id, p]) => ({ id, name: capital(id), values: [p.pitch, p.formant, p.breathReduction] })),
   { id: "custom", name: "Custom (sliders)" },
 ];
 const valuesOf = (v) => v.values ?? [Number($("pitch").value), Number($("formant").value), Number($("breath").value)];
 
-let piper = null;
-async function loadPiper() {
-  if (piper) return piper;
-  status("Loading the voice (first time: a few seconds, the page may pause)...");
-  await breathe();
-  const t0 = performance.now();
-  piper = await PiperPlus.initialize({
-    model: new URL(MODEL, location.href).href,
-    ort,
-    wasmG2pUrl: new URL(PATHS.piperRustWasm, location.href).href,
-    onProgress: ({ message }) => log(message),
-  });
-  patchSpeakerEmbeddingDim(piper, ort, log);
-  log(`Voice ready after ${((performance.now() - t0) / 1000).toFixed(1)} s.`);
-  return piper;
-}
+const voice = createVoice({ filesUrl: "./yomiage/" });
+voice.on("log", log);
+voice.on("progress", (p) => { if (p.stage !== "ready") status(`Loading the voice: ${p.stage} ${Math.round(p.fraction * 100)}%`); });
 
-/** Same steps as the playground: speak faster by the formant ratio, then PSOLA, then de-hiss. */
-async function render(voice) {
-  const [pitch, formant, dehiss] = valuesOf(voice);
-  const ratio = 2 ** (formant / 12);
-  const p = await loadPiper();
-  const speed = Number($("speed").value) / ratio;
-  const audio = await p.synthesize($("text").value.trim(), { language: "ja", lengthScale: 1 / speed });
-  const sr = audio.sampleRate;
-  const shifted = shiftVoicePsola(audio.samples, sr, pitch, formant, VOICE_SHIFT);
-  const samples = await reduceBreathiness(shifted, sr, dehiss);
-  return { samples, sampleRate: sr, hnr: harmonicsToNoise(samples, sr) };
+async function render(v) {
+  const [pitch, formant, breathReduction] = valuesOf(v);
+  if (voice.status === "not-loaded") await voice.load();
+  const audio = await voice.synthesize($("text").value.trim(), { pitch, formant, breathReduction, speed: Number($("speed").value) });
+  return { ...audio, hnr: harmonicsToNoise(audio.samples, audio.sampleRate) };
 }
 
 const results = new Map(); // voice id -> { samples, sampleRate, hnr } | { error }
@@ -108,7 +74,6 @@ async function generate(voices) {
     draw();
     for (const [i, v] of voices.entries()) {
       status(`Speaking ${i + 1} of ${voices.length}: ${v.name}...`);
-      await breathe();
       try { results.set(v.id, await render(v)); }
       catch (e) { results.set(v.id, { error: e?.message ?? String(e) }); log(`${v.name}: ${e?.stack ?? e}`); }
       draw();
@@ -144,17 +109,9 @@ function stop() {
   try { src.stop(); } catch { /* already ended */ }
 }
 
-function downloadWav({ samples, sampleRate: sr }, name) {
-  const buf = new ArrayBuffer(44 + samples.length * 2);
-  const v = new DataView(buf);
-  const str = (o, s) => [...s].forEach((c, i) => v.setUint8(o + i, c.charCodeAt(0)));
-  str(0, "RIFF"); v.setUint32(4, 36 + samples.length * 2, true); str(8, "WAVE"); str(12, "fmt ");
-  v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true); v.setUint32(24, sr, true);
-  v.setUint32(28, sr * 2, true); v.setUint16(32, 2, true); v.setUint16(34, 16, true); str(36, "data");
-  v.setUint32(40, samples.length * 2, true);
-  for (let i = 0; i < samples.length; i++) v.setInt16(44 + i * 2, Math.max(-1, Math.min(1, samples[i])) * 0x7fff, true);
+function downloadWav(audio, name) {
   const a = document.createElement("a");
-  a.href = URL.createObjectURL(new Blob([buf], { type: "audio/wav" }));
+  a.href = URL.createObjectURL(toWav(audio));
   a.download = name;
   a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 10_000);

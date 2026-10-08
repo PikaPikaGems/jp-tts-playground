@@ -1,17 +1,10 @@
-import { PiperPlus } from "piper-plus";
-import * as ort from "onnxruntime-web";
+import { createVoice, toWav, PRESETS, DEFAULTS } from "yomiage";
 import { PATHS } from "./src/paths.js";
-import { loadChunked } from "./src/chunks.js";
-import { patchSpeakerEmbeddingDim } from "./src/piper-patch.js";
 import { reduceBreathiness } from "./src/voicefx.js?v=34";
 import { shiftVoicePsola, VOICE_SHIFT } from "./src/psola.js?v=34";
 import { groupBunsetsu, rubySegments, posLabel, posLabelEn, posColorKey, splitStudySentences } from "./src/furigana.js?v=33";
 
 const $ = (id) => document.getElementById(id);
-
-// Single-threaded WASM so no COOP/COEP headers are needed.
-ort.env.wasm.numThreads = 1;
-ort.env.wasm.wasmPaths = new URL(PATHS.ortDist, location.href).href;
 
 // ------------------------------------------------------------ sentence split
 // Split on sentence enders / newlines; break overlong sentences at 、 so each
@@ -96,6 +89,7 @@ function unlockAudio(text = "") {
 
 function stopAudio() {
   generation++;
+  voice.stop();
   try { window.speechSynthesis?.cancel(); } catch {}
   for (const s of playing) { try { s.stop(); } catch {} }
   playing.clear();
@@ -118,7 +112,8 @@ function encodeWav(chunks, sampleRate) {
 }
 
 // ------------------------------------------------------------------- card UI
-function setupCard(id, engine) {
+/** A panel's log, sliders (with their value labels) and Reset button, shared by both panels. */
+function cardControls(id) {
   const root = $(id);
   const q = (sel) => root.querySelector(sel);
   const logEl = q(".log");
@@ -134,8 +129,13 @@ function setupCard(id, engine) {
   Object.values(inputs).forEach((el) => el.addEventListener("input", refresh));
   q(".reset").addEventListener("click", () => { for (const k in inputs) inputs[k].value = defaults[k]; refresh(); });
   refresh();
-
   const params = () => Object.fromEntries(Object.entries(inputs).map(([k, el]) => [k, Number(el.value)]));
+  return { q, log, params };
+}
+
+/** The Style-BERT-VITS2 panel: synthesizes sentence by sentence in its worker and plays them back to back. */
+function setupCard(id, engine) {
+  const { q, log, params } = cardControls(id);
   const state = { ready: false, busy: false };
   const card = { state, onReady: null };
 
@@ -184,8 +184,10 @@ function setupCard(id, engine) {
         if (playback.gen !== generation) { log("Stopped."); break; }
         const t1 = performance.now();
         const foreign = isForeign(sentence);
-        if (foreign && ($("foreign-voice").value === "browser" || !engine.multilingual)) {
-          // let queued audio finish, then read this sentence with the browser's own voice (not in the downloadable WAV)
+        if (foreign) {
+          // Style-BERT-VITS2 only speaks Japanese: such a sentence is skipped, or read by the browser's own voice after
+          // the queued audio (not part of the downloadable WAV)
+          if ($("foreign-voice").value === "skip") { log(`#${i + 1} "${sentence.slice(0, 14)}${sentence.length > 14 ? "…" : ""}" is not Japanese -> skipped`); continue; }
           await playback.finished();
           if (playback.gen !== generation) { log("Stopped."); break; }
           log(`#${i + 1} "${sentence.slice(0, 14)}${sentence.length > 14 ? "…" : ""}" is not Japanese -> browser voice`);
@@ -195,7 +197,7 @@ function setupCard(id, engine) {
         // Voice shifting (src/psola.js): the formants are moved by resampling, which also slows the speech down by
         // `ratio`, so the model is asked to talk faster by the same factor first; PSOLA then sets the final pitch.
         const ratio = 2 ** (base.formant / 12);
-        const synth = await engine.synth(sentence, { ...base, speed: base.speed / ratio, language: foreign ? "en" : "ja" });
+        const synth = await engine.synth(sentence, { ...base, speed: base.speed / ratio });
         const sampleRate = synth.sampleRate;
         const shifted = shiftVoicePsola(synth.samples, sampleRate, base.pitch, base.formant, VOICE_SHIFT);
         const samples = await reduceBreathiness(shifted, sampleRate, base.breath);
@@ -229,60 +231,104 @@ function setupCard(id, engine) {
   return card;
 }
 
-// -------------------------------------------------------------- piper engine
-// Runs on the main thread (fast enough: RTF ~0.1). Yields between sentences.
-let piper = null;
+// --------------------------------------------------------------- piper-plus panel (yomiage)
+// yomiage (github.com/PikaPikaGems/yomiage) runs piper-plus with the tsukuyomi-chan voice in a worker, applies the
+// voice presets, splits the text into sentences and plays them. Its files are in ./yomiage/ (`npm run yomiage:files`).
+const voice = createVoice({ filesUrl: "./yomiage/" });
+const mb = (n) => (n / 1e6).toFixed(1);
 
-// The Rust phonemizer (OpenJTalk dictionary inside) is 57 MiB, so the hosted build ships it gzipped in parts and hands the
-// bytes to piper-plus through its `wasmLoader` hook. Loaded once per page, whichever voice is selected.
-let rustModulePromise = null;
-function loadRustPhonemizer(log) {
-  rustModulePromise ??= (async () => {
-    const [mod, bytes] = await Promise.all([
-      import(new URL(PATHS.piperRustWasm, location.href).href),
-      loadChunked({ manifestUrl: new URL(PATHS.piperRustManifest, location.href).href, label: "Phonemizer", log }),
-    ]);
-    await mod.default({ module_or_path: bytes });
-    return mod;
-  })().catch((e) => { rustModulePromise = null; throw e; });
-  return rustModulePromise;
-}
+function setupPiperCard() {
+  const { q, log, params } = cardControls("piper");
+  const state = { ready: false, busy: false };
+  const card = { state, onReady: null };
+  // the panel's sliders, as yomiage settings
+  const settings = (speedFactor = 1) => {
+    const p = params();
+    return {
+      speed: p.speed * speedFactor, pitch: p.pitch, formant: p.formant, breathReduction: p.breath,
+      expressiveness: p.noise, rhythmVariation: p.noiseW, otherLanguages: $("foreign-voice").value,
+    };
+  };
 
-const piperEngine = {
-  multilingual: true, // the piper-plus models were trained on ja/en/zh/es/fr/pt
-  async load(model, log) {
-    piper?.dispose?.();
-    piper = null;
-    const modelUrl = new URL(model, location.href).href;
-    log(`Loading ${modelUrl} ...`);
-    // Hosted build: the voice model is split into parts. piper-plus calls ort.InferenceSession.create(<url>) itself,
-    // so hand it an ort whose create() receives the joined, verified bytes for that URL instead.
-    let ortForPiper = ort;
-    if (PATHS.chunked) {
-      const bytes = await loadChunked({ manifestUrl: new URL(model.replace(/[^/]+$/, "manifest.json"), location.href).href, label: "Voice model", log });
-      ortForPiper = { ...ort, InferenceSession: { create: (path, opts) => ort.InferenceSession.create(path === modelUrl ? bytes : path, opts) } };
+  voice.on("log", (m) => log(m));
+  voice.on("status", (s) => log(`status: ${s}`));
+  voice.info().then(({ cached, downloadMB }) => log(cached ? "The voice files are on this device." : `Loading downloads ${downloadMB} MB once.`)).catch(() => {});
+
+  const box = q(".loading");
+  voice.on("progress", (p) => {
+    box.hidden = false;
+    box.querySelector("progress").value = p.fraction;
+    box.querySelector(".stage").textContent = p.stage === "downloading" ? `Downloading voice… ${mb(p.loaded)} / ${mb(p.total)} MB`
+      : p.stage === "preparing" ? `Preparing voice… ${Math.round(p.fraction * 100)}%` : "Ready";
+    box.querySelector(".step").textContent = p.step === "ready" ? "" : `${p.step}${p.file ? ` · ${p.file}` : ""}${p.parts > 1 ? ` part ${p.part}/${p.parts}` : ""}`;
+  });
+
+  q(".load").addEventListener("click", async () => {
+    q(".load").disabled = true;
+    try {
+      const { fromCache, ms, timings } = await voice.load();
+      state.ready = true;
+      q(".speak").disabled = false;
+      if (ms !== undefined) {
+        log(`Ready: ${fromCache ? "from this device" : "downloaded"} in ${(ms / 1000).toFixed(1)} s. Slowest steps:`);
+        for (const t of [...timings].sort((x, y) => y.ms - x.ms).slice(0, 4)) log(`  ${String(t.ms).padStart(6)} ms  ${t.step}${t.file ? ` ${t.file}` : ""}`);
+      } else log("Ready.");
+    } catch (err) {
+      log(`ERROR loading: ${err.code ?? err.name}: ${err.message}`);
+      console.error(err);
+    } finally {
+      q(".load").disabled = false;
+      setTimeout(() => { box.hidden = true; }, 1500);
+      card.onReady?.();
     }
-    piper = await PiperPlus.initialize({
-      model: modelUrl,
-      ort: ortForPiper,
-      wasmG2pUrl: new URL(PATHS.piperRustWasm, location.href).href,
-      wasmLoader: PATHS.piperRustManifest ? () => loadRustPhonemizer(log) : undefined,
-      onProgress: ({ stage, progress, message }) => log(`[${stage}] ${message} (${Math.round(progress * 100)}%)`),
-    });
-    patchSpeakerEmbeddingDim(piper, ort, log);
-    const inf = piper._config?.inference ?? {};
-    log(`Model defaults: length_scale=${inf.length_scale}, noise_scale=${inf.noise_scale}, noise_w=${inf.noise_w}`);
-  },
-  async synth(text, p) {
-    const audio = await piper.synthesize(text, {
-      language: p.language ?? "ja",
-      lengthScale: 1 / p.speed,
-      noiseScale: p.noise,
-      noiseW: p.noiseW,
-    });
-    return { samples: audio.samples, sampleRate: audio.sampleRate };
-  },
-};
+  });
+
+  // Resolves when playback ends (or is stopped). A new speak() stops the current one when `interrupt` is set
+  // (study mode); otherwise it is ignored while speaking, like the other panel.
+  let seq = 0, last = null;
+  card.speak = async (text, { interrupt = false, speedFactor = 1 } = {}) => {
+    if (!state.ready || !text || (state.busy && !interrupt)) return;
+    const mine = ++seq;
+    const s = settings(speedFactor);
+    state.busy = true;
+    q(".speak").disabled = true;
+    const t0 = performance.now();
+    let first = true;
+    try {
+      const result = await voice.speak(text, {
+        ...s,
+        onSentence: (sentence) => {
+          if (first) { first = false; log(`first sound after ${((performance.now() - t0) / 1000).toFixed(2)} s`); }
+          log(`▶ ${sentence.text}`);
+        },
+      });
+      log(result === "done" ? `Done (${((performance.now() - t0) / 1000).toFixed(1)} s).` : "Stopped.");
+      last = { text, settings: s };
+      q(".download").hidden = false;
+    } catch (err) {
+      log(`ERROR speaking: ${err.code ?? err.name}: ${err.message}`);
+      console.error(err);
+    } finally {
+      if (mine === seq) { state.busy = false; q(".speak").disabled = false; }
+    }
+  };
+  q(".speak").addEventListener("click", () => card.speak($("text").value.trim()));
+
+  // the WAV of the last text spoken, made on demand (yomiage plays without keeping the audio)
+  q(".download").addEventListener("click", async (e) => {
+    e.preventDefault();
+    if (!last) return;
+    const a = q(".download");
+    a.textContent = "WAV…";
+    try {
+      const url = URL.createObjectURL(toWav(await voice.synthesize(last.text, last.settings)));
+      Object.assign(document.createElement("a"), { href: url, download: "piper.wav" }).click();
+      setTimeout(() => URL.revokeObjectURL(url), 10_000);
+    } catch (err) { log(`ERROR making the WAV: ${err.message}`); }
+    finally { a.textContent = "WAV"; }
+  });
+  return card;
+}
 
 // -------------------------------------------------- sbv2 engine (Web Worker)
 // All heavy work (2 ONNX sessions, ~500MB) lives in a worker so the page never freezes.
@@ -327,25 +373,32 @@ const sbv2Engine = {
   },
 };
 
+// Voice presets come from yomiage; the menu sets Pitch, Voice size and Breathiness reduction on both panels.
+const capital = (w) => w[0].toUpperCase() + w.slice(1);
+for (const name of Object.keys(PRESETS)) $("preset").append(new Option(capital(name), name));
+function applyPreset(name) {
+  const p = PRESETS[name];
+  for (const id of ["piper", "sbv2"]) {
+    for (const [k, v] of [["pitch", p.pitch], ["formant", p.formant], ["breath", p.breathReduction]]) {
+      const el = document.querySelector(`#${id} [data-p=${k}]`);
+      el.value = v;
+      el.dispatchEvent(new Event("input"));
+    }
+  }
+}
+$("preset").value = DEFAULTS.preset;
+applyPreset(DEFAULTS.preset); // before the panels read their Reset values
+document.querySelector("#piper [data-p=speed]").value = DEFAULTS.speed;
+$("preset").addEventListener("change", (e) => applyPreset(e.target.value));
+
 // The Style-BERT-VITS2 panel needs ~500 MB of local model files, so the hosted build leaves it out (see README).
-const cards = [setupCard("piper", piperEngine)];
+const cards = [setupPiperCard()];
 if (PATHS.sbv2) cards.push(setupCard("sbv2", sbv2Engine));
 else {
   $("sbv2").hidden = true;
   $("speak-both").hidden = true;
   $("title-engines").textContent = "piper-plus";
 }
-
-$("preset").addEventListener("change", (e) => {
-  const [pitch, formant, breath] = e.target.value.split(",");
-  for (const id of ["piper", "sbv2"]) {
-    for (const [k, v] of [["pitch", pitch], ["formant", formant], ["breath", breath]]) {
-      const el = document.querySelector(`#${id} [data-p=${k}]`);
-      el.value = v;
-      el.dispatchEvent(new Event("input"));
-    }
-  }
-});
 
 // "Speak both" runs the engines sequentially (they'd fight over CPU otherwise).
 const both = $("speak-both");
@@ -625,5 +678,5 @@ const applyFuri = () => { $("reader").dataset.furi = $("furi-always").checked ? 
 $("furi-always").addEventListener("change", applyFuri);
 applyFuri();
 
-$("foreign-voice").value = pref.get("foreignVoice", "browser");
+$("foreign-voice").value = pref.get("foreignVoice", "read") === "skip" ? "skip" : "read"; // older values: "browser", "model"
 $("foreign-voice").addEventListener("change", () => pref.set("foreignVoice", $("foreign-voice").value));
