@@ -17,8 +17,7 @@
     "@jsr/hdae__yomi": "^0.4.2",
     "@piper-plus/g2p": "^0.4.2",
     "onnxruntime-web": "^1.30.0",
-    "piper-plus": "^0.7.0",
-    "rubberband-wasm": "^3.3.0"
+    "piper-plus": "^0.7.0"
   },
   "devDependencies": {
     "esbuild": "^0.28.2"

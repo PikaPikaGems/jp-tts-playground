@@ -26,7 +26,6 @@ below are provided for convenience and are **not legal advice** - check the link
 | [piper-plus](https://github.com/ayutaz/piper-plus) (`piper-plus`, `@piper-plus/g2p`) | text-to-speech engine, phonemizer | MIT |
 | [ONNX Runtime Web](https://github.com/microsoft/onnxruntime) | runs the voice models in the browser | MIT |
 | [Sudachi](https://github.com/WorksApplications/sudachi.rs) + SudachiDict, WASM build from [hata6502/sudachi-wasm](https://github.com/hata6502/sudachi-wasm) (npm `sudachi@0.1.5`) | Japanese morphological analysis: readings, dictionary forms, part of speech | Apache-2.0. SudachiDict incorporates UniDic (BSD-3-Clause) and NEologd data - see the [upstream notices](https://github.com/hata6502/sudachi-wasm#disclaimer). |
-| [Rubber Band](https://breakfastquay.com/rubberband/) via [`rubberband-wasm`](https://github.com/daninet/rubberband-wasm) | independent pitch / formant shifting | **GPL** (v2 or later upstream; the npm package metadata says GPLv2). A site that ships it must be distributable under GPL-compatible terms, or use a commercial Rubber Band licence. |
 | [@jsr/hdae__sbv2-web](https://jsr.io/@hdae/sbv2-web), [@hdae/yomi](https://jsr.io/@hdae/yomi) | optional local-only Style-BERT-VITS2 panel | MIT (code); the models it needs have their own terms, see README |
 
 The compiled Sudachi binary contains the dictionary; its Apache-2.0 licence text is included next to it in

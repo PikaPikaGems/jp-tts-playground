@@ -2,7 +2,9 @@ import { PiperPlus } from "piper-plus";
 import * as ort from "onnxruntime-web";
 import { PATHS } from "./src/paths.js";
 import { loadChunked } from "./src/chunks.js";
-import { shiftVoice, reduceBreathiness, resampleBy } from "./src/voicefx.js?v=33";
+import { patchSpeakerEmbeddingDim } from "./src/piper-patch.js";
+import { reduceBreathiness } from "./src/voicefx.js?v=34";
+import { shiftVoicePsola, VOICE_SHIFT } from "./src/psola.js?v=34";
 import { groupBunsetsu, rubySegments, posLabel, posLabelEn, posColorKey, splitStudySentences } from "./src/furigana.js?v=33";
 
 const $ = (id) => document.getElementById(id);
@@ -175,10 +177,9 @@ function setupCard(id, engine) {
     try {
       log(`${sentences.length} sentence(s)`);
       const t0 = performance.now();
-      const cleanShift = $("clean-shift").checked;
       const base = params();
       base.speed *= speedFactor; // study mode's 🐢 button passes 0.75
-      if (base.pitch || base.formant) log(`Voice: pitch ${base.pitch} st, formants ${base.formant} st (${cleanShift && base.formant ? "clean resample + Rubber Band" : "Rubber Band"})`);
+      if (base.pitch || base.formant) log(`Voice: pitch ${base.pitch} st, formants ${base.formant} st (PSOLA)`);
       for (const [i, sentence] of sentences.entries()) {
         if (playback.gen !== generation) { log("Stopped."); break; }
         const t1 = performance.now();
@@ -191,16 +192,12 @@ function setupCard(id, engine) {
           await speakBrowser(sentence, { rate: base.speed, pitchSt: base.pitch });
           continue;
         }
-        // Alternative ("experimental") shifting: do the formant part of the change by plain resampling (artifact-free; it moves pitch and
-        // formants together) after asking the model to talk faster by the same factor to keep the tempo, then let
-        // Rubber Band handle only the remaining pitch difference. No measurable noise difference vs Rubber Band alone, but it may sound different.
-        const hybrid = cleanShift && base.formant !== 0;
-        const ratio = hybrid ? 2 ** (base.formant / 12) : 1;
+        // Voice shifting (src/psola.js): the formants are moved by resampling, which also slows the speech down by
+        // `ratio`, so the model is asked to talk faster by the same factor first; PSOLA then sets the final pitch.
+        const ratio = 2 ** (base.formant / 12);
         const synth = await engine.synth(sentence, { ...base, speed: base.speed / ratio, language: foreign ? "en" : "ja" });
         const sampleRate = synth.sampleRate;
-        const shifted = hybrid
-          ? await shiftVoice(await resampleBy(synth.samples, sampleRate, ratio), sampleRate, base.pitch - base.formant, 0)
-          : await shiftVoice(synth.samples, sampleRate, base.pitch, base.formant);
+        const shifted = shiftVoicePsola(synth.samples, sampleRate, base.pitch, base.formant, VOICE_SHIFT);
         const samples = await reduceBreathiness(shifted, sampleRate, base.breath);
         if (playback.gen !== generation) { log("Stopped."); break; }
         const ms = performance.now() - t1;
@@ -272,7 +269,7 @@ const piperEngine = {
       wasmLoader: PATHS.piperRustManifest ? () => loadRustPhonemizer(log) : undefined,
       onProgress: ({ stage, progress, message }) => log(`[${stage}] ${message} (${Math.round(progress * 100)}%)`),
     });
-    patchSpeakerEmbeddingDim(piper, log);
+    patchSpeakerEmbeddingDim(piper, ort, log);
     const inf = piper._config?.inference ?? {};
     log(`Model defaults: length_scale=${inf.length_scale}, noise_scale=${inf.noise_scale}, noise_w=${inf.noise_w}`);
   },
@@ -363,36 +360,6 @@ both.addEventListener("click", async () => {
   for (const c of cards) { if (gen !== generation) break; await c.speak(text); }
   refreshBoth();
 });
-
-// Workaround for piper-plus 0.7.0 bugs: when a model declares `speaker_embedding`
-// and none is supplied, index.js feeds a hardcoded [1,192] zero vector and a
-// rank-1 `speaker_embedding_mask` ([1], mask = 0). The tsukuyomi model declares
-// a 256-dim embedding and a rank-2 mask, so ORT rejects both. Rebuild the
-// placeholders from the shapes the model actually declares.
-function patchSpeakerEmbeddingDim(p, log) {
-  const session = p._session;
-  const meta = session?.inputMetadata;
-  const shapeOf = (name) => (Array.isArray(meta) ? meta.find((m) => m.name === name) : meta?.[name])?.shape;
-  const embShape = shapeOf("speaker_embedding");
-  const maskShape = shapeOf("speaker_embedding_mask");
-  const dim = embShape?.[1];
-  if (!session || typeof dim !== "number" || dim <= 0) return;
-  const run = session.run.bind(session);
-  session.run = (feeds, ...rest) => {
-    const emb = feeds.speaker_embedding;
-    if (emb && emb.dims[1] !== dim) {
-      feeds = { ...feeds, speaker_embedding: new ort.Tensor("float32", new Float32Array(dim), [1, dim]) };
-    }
-    const mask = feeds.speaker_embedding_mask;
-    if (mask && maskShape && mask.dims.length !== maskShape.length) {
-      const dims = maskShape.map(() => 1);
-      feeds = { ...feeds, speaker_embedding_mask: new ort.Tensor("int64", mask.data, dims) };
-    }
-    return run(feeds, ...rest);
-  };
-  log(`Patched speaker_embedding placeholders (dim ${dim}, mask rank ${maskShape?.length ?? "n/a"}).`);
-}
-
 
 // ---------------------------------------------------- reading view (Sudachi)
 // Furigana + bunsetsu spacing + dictionary-form popover for whatever is in the shared textarea.
@@ -660,6 +627,3 @@ applyFuri();
 
 $("foreign-voice").value = pref.get("foreignVoice", "browser");
 $("foreign-voice").addEventListener("change", () => pref.set("foreignVoice", $("foreign-voice").value));
-
-$("clean-shift").checked = pref.get("cleanShift", "0") === "1"; // off by default: no measured benefit, kept for comparing by ear
-$("clean-shift").addEventListener("change", () => pref.set("cleanShift", $("clean-shift").checked ? "1" : "0"));

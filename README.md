@@ -10,10 +10,10 @@ and shows it with furigana, bunsetsu grouping, part-of-speech colours and a dict
 
 - **Speak** with [piper-plus](https://github.com/ayutaz/piper-plus) voices (ONNX, runs in WebAssembly): Tsukuyomi-chan,
   CSS10, Mera-chan. Speed, expressiveness and rhythm sliders.
-- **Voice presets**: independent *pitch* and *voice size (formant)* shifting (Rubber Band), so one voice can be made
-  to sound like a young woman, a mature woman, a man, and so on. Plus a *breathiness reduction* filter and an
-  experimental alternative shifting method (off by default). Note: the shifting adds some artifacts (the noise level
-  drops by about 2 dB versus the unshifted voice), so large shifts sound less clean than the original.
+- **Voice presets**: independent *pitch* and *voice size (formant)* shifting with PSOLA (our own code in
+  `src/psola.js`), with five filter presets (Original, Soft, Low, Deep, Deeper) on top of the Tsukuyomi-chan voice, plus a
+  *breathiness reduction* filter. The presets were picked by ear in `voice-lab.html`; large shifts still sound less
+  clean than the original voice.
 - **Reading view** ([Sudachi](https://github.com/WorksApplications/sudachi.rs) in WebAssembly): furigana on kanji
   (always, or on hover/tap), a space between bunsetsu, main words coloured by part of speech, and a popover with the
   dictionary form, the parts of each phrase (Japanese and English tag names) and 🔊 buttons for the word and the phrase.
@@ -118,7 +118,11 @@ project at the `gh-pages` branch with no build command and `/` as the output dir
 ```
 index.html, app.js, style.css     the page
 src/furigana.js                   bunsetsu grouping, furigana alignment, sentence splitting (pure functions)
-src/voicefx.js                    pitch / formant shifting + breathiness filter
+src/psola.js                      pitch / formant shifting (PSOLA)
+src/voicefx.js                    breathiness filter
+src/piper-patch.js                workaround for a piper-plus speaker-embedding bug
+voice-lab.html, src/voice-lab.js  compares the voice presets side by side (local development only)
+scripts/test-psola.mjs            checks the pitch shifting on a synthetic voice
 src/chunks.js                     loads split files: parts -> gunzip -> SHA-256 check -> IndexedDB cache
 src/sudachi-worker.js             Web Worker: loads Sudachi and tokenises
 src/sudachi-glue.js               wasm-bindgen glue for the Sudachi binary
@@ -140,4 +144,4 @@ same licence. The hosted site links to this repository for that reason.
 
 The AGPL covers this project's code only. The voice models, dictionaries and libraries it uses keep their own licences
 and terms - see [NOTICE.md](NOTICE.md). In particular the **Tsukuyomi-chan** voice requires a credit line (shown at the
-bottom of the page), and Rubber Band is GPL-licensed (compatible with AGPL-3.0-or-later).
+bottom of the page).

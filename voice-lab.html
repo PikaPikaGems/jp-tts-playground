@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Voice Lab</title>
+  <script type="importmap">
+  {
+    "imports": {
+      "piper-plus": "./node_modules/piper-plus/src/index.js",
+      "@piper-plus/g2p": "./node_modules/@piper-plus/g2p/src/index.js",
+      "onnxruntime-web": "./node_modules/onnxruntime-web/dist/ort.wasm.min.mjs"
+    }
+  }
+  </script>
+  <style>
+    :root { --bg: #fff; --fg: #1a1a1a; --muted: #666; --border: #ddd; --card: #f4f4f6; --accent: #2563eb; --bad: #b91c1c; }
+    @media (prefers-color-scheme: dark) {
+      :root:not([data-theme="light"]) { --bg: #111; --fg: #eee; --muted: #999; --border: #333; --card: #1c1c1f; --accent: #60a5fa; --bad: #f87171; }
+    }
+    :root[data-theme="dark"] { --bg: #111; --fg: #eee; --muted: #999; --border: #333; --card: #1c1c1f; --accent: #60a5fa; --bad: #f87171; }
+    * { box-sizing: border-box; }
+    body { background: var(--bg); color: var(--fg); font: 15px/1.5 -apple-system, system-ui, sans-serif; margin: 0 auto; padding: 16px; max-width: 760px; }
+    h1 { font-size: 22px; margin: 0 0 4px; }
+    p.lead { color: var(--muted); margin: 0 0 16px; }
+    fieldset { border: 1px solid var(--border); border-radius: 10px; margin: 0 0 16px; padding: 12px; min-width: 0; }
+    legend { font-weight: 600; padding: 0 4px; }
+    textarea { font: inherit; color: var(--fg); background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px; width: 100%; min-height: 56px; }
+    .slider { display: grid; grid-template-columns: 7em 1fr 4.5em; align-items: center; gap: 8px; margin: 6px 0; }
+    .slider input { width: 100%; }
+    .slider output { font-variant-numeric: tabular-nums; text-align: right; }
+    .hint { color: var(--muted); font-size: 13px; }
+    button { font: inherit; padding: 8px 14px; border-radius: 6px; border: 1px solid var(--border); background: var(--card); color: var(--fg); cursor: pointer; }
+    button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+    button:disabled { opacity: 0.5; cursor: default; }
+    #voices { list-style: none; padding: 0; margin: 12px 0 0; display: grid; gap: 8px; }
+    #voices li { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 8px 12px; display: grid; grid-template-columns: auto 1fr auto; gap: 12px; align-items: center; }
+    #voices li.playing { border-color: var(--accent); }
+    .play { width: 44px; height: 44px; border-radius: 50%; padding: 0; font-size: 16px; }
+    .name { font-weight: 600; }
+    .meta { color: var(--muted); font-size: 13px; }
+    .side { text-align: right; font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
+    .side a { color: var(--accent); display: block; }
+    .err { color: var(--bad); }
+    pre { background: var(--card); border-radius: 6px; padding: 8px; white-space: pre-wrap; font-size: 12px; max-height: 160px; overflow: auto; margin: 0; }
+  </style>
+</head>
+<body>
+  <h1>Voice lab</h1>
+  <p class="lead">tsukuyomi-chan with the playground's voice presets (PSOLA + de-hiss), plus a Custom voice for trying
+    new settings. Headphones make noise easier to hear.</p>
+
+  <fieldset>
+    <legend>Sentence</legend>
+    <textarea id="text">こんにちは。今日はいい天気ですね。私は駅まで歩いて行きます。</textarea>
+    <div class="slider"><label for="speed">Speed</label><input id="speed" type="range" min="0.5" max="1.5" step="0.05" value="0.9"><output id="speed-out"></output></div>
+  </fieldset>
+
+  <fieldset>
+    <legend>Custom voice</legend>
+    <div class="slider"><label for="pitch">Pitch</label><input id="pitch" type="range" min="-20" max="6" step="0.5" value="-9"><output id="pitch-out"></output></div>
+    <div class="slider"><label for="formant">Formants</label><input id="formant" type="range" min="-10" max="4" step="0.5" value="-4"><output id="formant-out"></output></div>
+    <div class="slider"><label for="breath">De-hiss</label><input id="breath" type="range" min="0" max="1" step="0.05" value="0.6"><output id="breath-out"></output></div>
+    <p class="hint">Pitch: how high the voice is (tsukuyomi speaks at about 380 Hz; a typical man at 100–130 Hz).
+      Formants: how big the speaker sounds. De-hiss: softens the highest frequencies.
+      After the first Generate, letting go of a slider updates the Custom voice (speed: everything).</p>
+  </fieldset>
+
+  <fieldset>
+    <legend>Listen</legend>
+    <button class="primary" id="generate">Generate</button>
+    <p class="hint" id="status">The first Generate loads the voice (a few seconds; the page may pause).</p>
+    <p class="hint">The dB number is a cleanliness score (harmonics-to-noise ratio): higher = less noise in the voice.
+      Only useful for comparing; trust your ears over it.</p>
+    <ol id="voices"></ol>
+  </fieldset>
+
+  <fieldset>
+    <legend>Log</legend>
+    <pre id="log"></pre>
+  </fieldset>
+
+  <script type="module" src="./src/voice-lab.js"></script>
+</body>
+</html>

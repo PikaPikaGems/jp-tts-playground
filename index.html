@@ -11,8 +11,7 @@
     "imports": {
       "piper-plus": "./node_modules/piper-plus/src/index.js",
       "@piper-plus/g2p": "./node_modules/@piper-plus/g2p/src/index.js",
-      "onnxruntime-web": "./node_modules/onnxruntime-web/dist/ort.wasm.min.mjs",
-      "rubberband-wasm": "./node_modules/rubberband-wasm/dist/index.esm.js"
+      "onnxruntime-web": "./node_modules/onnxruntime-web/dist/ort.wasm.min.mjs"
     }
   }
   </script>
@@ -50,27 +49,14 @@
     <div class="row">
       <label>Voice preset
         <select id="preset">
-          <option value="0,0,0">Original (young girl)</option>
-          <optgroup label="Female">
-            <option value="-2,-0.5,0">Young woman</option>
-            <option value="-4,-1,0.2">Woman</option>
-            <option value="-6,-1.5,0.3">Mature woman</option>
-            <option value="-8,-2,0.35">Low mature woman / alto</option>
-          </optgroup>
-          <optgroup label="Male">
-            <option value="-7.5,-3,0">Young man</option>
-            <option value="-9,-4,0">Man</option>
-            <option value="-11,-5.5,0.3">Deep man</option>
-            <option value="-13,-7,0.3">Very deep man</option>
-          </optgroup>
+          <option value="0,0,0">Original</option>
+          <option value="-2,-0.5,0.6">Soft</option>
+          <option value="-6,-1.5,0.6">Low</option>
+          <option value="-9,-4,0.6">Deep</option>
+          <option value="-11,-5.5,0.6">Deeper</option>
         </select>
       </label>
-      <span style="opacity:.6;font-size:.8rem">sets Pitch, Voice size and Breathiness reduction on both panels (starting points - tune to taste)</span>
-    </div>
-
-    <div class="row">
-      <label class="switch"><input type="checkbox" id="clean-shift"> <b>Experimental: alternative voice shifting</b>
-        <span class="hint">for presets: part of the change is done by plain resampling and Rubber Band only does the rest. Measurements show no difference in noise level, but it may sound different - compare by ear.</span></label>
+      <span style="opacity:.6;font-size:.8rem">sets Pitch, Voice size and Breathiness reduction on both panels (chosen by ear for tsukuyomi-chan)</span>
     </div>
     <div class="row">
       <label>Non-Japanese text (e.g. English)
@@ -92,7 +78,7 @@
           <option value="models/mera/model.onnx">mera-chan (Apache-2.0)</option>
         </select>
         <div class="sliders">
-          <div class="ctl"><label>Speed <output data-for="speed"></output><input data-p="speed" type="range" min="0.5" max="1.5" step="0.05" value="1"></label>
+          <div class="ctl"><label>Speed <output data-for="speed"></output><input data-p="speed" type="range" min="0.5" max="1.5" step="0.05" value="0.9"></label>
             <small class="hint">How fast the voice talks (1.0× = normal, 1.5× = 50% faster). Changes tempo only, not pitch.</small></div>
           <div class="ctl"><label>Pitch <output data-for="pitch"></output><input data-p="pitch" type="range" min="-14" max="6" step="0.5" value="0"></label>
             <small class="hint">How high or low the voice is, in semitones (12 = one octave). Applied after the voice is generated; speed and voice size stay the same. Negative = lower.</small></div>
@@ -188,14 +174,13 @@
         <a href="https://huggingface.co/kizuna-intelligence/piper-plus-mera-multilingual">Kizuna Intelligence</a> (Apache-2.0) and the
         <a href="https://github.com/Kyubyong/css10">CSS10</a> dataset (public domain) ·
         <a href="https://github.com/WorksApplications/sudachi.rs">Sudachi</a> / SudachiDict (Apache-2.0) via
-        <a href="https://github.com/hata6502/sudachi-wasm">hata6502/sudachi-wasm</a> ·
-        <a href="https://breakfastquay.com/rubberband/">Rubber Band</a> (GPL) · ONNX Runtime (MIT).
+        <a href="https://github.com/hata6502/sudachi-wasm">hata6502/sudachi-wasm</a> · ONNX Runtime (MIT).
         See <a href="NOTICE.md">NOTICE.md</a>.</p>
       <p>Source code: <a href="https://github.com/PikaPikaGems/jp-tts-playground">github.com/PikaPikaGems/jp-tts-playground</a> ·
         licensed <a href="LICENSE">AGPL-3.0-or-later</a>.</p>
     </footer>
   </main>
   <div id="pop" role="tooltip" hidden></div>
-  <script type="module" src="app.js?v=33"></script>
+  <script type="module" src="app.js?v=34"></script>
 </body>
 </html>
