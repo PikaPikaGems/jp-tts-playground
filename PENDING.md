@@ -8,8 +8,7 @@ packages from their v0.1.0 releases.
 
 ## Both packages
 
-- [ ] Publish the playground site: `npm run build:deploy && npm run publish:gh-pages` (main is pushed; the reading
-      view now runs on wakachi).
+- [x] Publish the playground site (2026-10-09, built from the v0.1.0 releases).
 - [ ] Test on an iPhone: https://pikapikagems.github.io/jp-tts-playground/ once published (or the LAN address of
       the packages' test pages on the same Wi-Fi). Watch for: no sound, a stalled loading bar, the page reloading
       (memory), slow analysis.
