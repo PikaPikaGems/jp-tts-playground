@@ -444,8 +444,8 @@ analyzer.on("progress", (p) => {
 });
 
 // colour key for a head word, by wakachi's part of speech (null = no colour)
-const POS_COLOR = { noun: "noun", pronoun: "pronoun", verb: "verb", adjective: "adj", "adjectival-noun": "adjnoun",
-  adverb: "adverb", adnominal: "adnominal", conjunction: "conj", interjection: "interj" };
+const POS_COLOR = { "名詞": "noun", "代名詞": "pronoun", "動詞": "verb", "形容詞": "adj", "形状詞": "adjnoun",
+  "副詞": "adverb", "連体詞": "adnominal", "接続詞": "conj", "感動詞": "interj" };
 
 function renderReader(lines, sentences = null) {
   const out = $("reader-out");
@@ -512,7 +512,7 @@ const HAS_TEXT = /[\p{L}\p{N}]/u;
 /** The phrase as written, without trailing punctuation (so the voice doesn't pause on a trailing 、). */
 function phraseText(g) {
   const ws = [...g.morphemes];
-  while (ws.length > 1 && ["punctuation", "symbol"].includes(ws.at(-1).pos)) ws.pop();
+  while (ws.length > 1 && ["補助記号", "記号"].includes(ws.at(-1).pos)) ws.pop();
   return ws.map((w) => w.surface).join("");
 }
 
@@ -553,7 +553,7 @@ function showPop(span) {
     li.append(`${w.surface} → ${w.dictionaryForm || w.surface} `);
     const pos = document.createElement("div");
     pos.className = "pos";
-    pos.textContent = `${posLabel(w, "ja")} — ${posLabel(w)}`;
+    pos.textContent = `${posLabel(w)} — ${posLabel(w, "en")}`;
     li.append(pos);
     ul.append(li);
   }
