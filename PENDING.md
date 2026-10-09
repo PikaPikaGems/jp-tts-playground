@@ -1,8 +1,9 @@
 # Pending
 
 Where the package work stands, so it can be picked up later. Packages: **wakachi** (Sudachi analyzer,
-github.com/PikaPikaGems/wakachi, private), **yomiage** (Tsukuyomi-chan voice, github.com/PikaPikaGems/yomiage, public),
-**kakera** (shared plumbing bundled into both, github.com/PikaPikaGems/kakera, public). This playground uses both
+github.com/PikaPikaGems/wakachi), **yomiage** (Tsukuyomi-chan voice, github.com/PikaPikaGems/yomiage), **kakera** (shared
+plumbing bundled into both, github.com/PikaPikaGems/kakera), all public. Each has its own PENDING.md; demo sites:
+https://pikapikagems.github.io/wakachi/ and https://pikapikagems.github.io/yomiage/. This playground uses both
 packages from the folders next to it (`file:../yomiage`, `file:../wakachi`).
 
 ## Both packages
@@ -24,11 +25,7 @@ packages from the folders next to it (`file:../yomiage`, `file:../wakachi`).
 - [x] Own repo on kakera, `copy-files`, types, test page (2026-10-09).
 - [x] Everyday readings: 私 わたし, 明日 あした, 日本 にほん, お母さん, 言う いう, numbers with counters.
 - [ ] Your feature ideas for wakachi (not written down yet).
-- [ ] More reading fixes: 428 of the top 7,142 kanji words still differ from jp-word-ranks-data, mostly single kanji
-      out of context (年, 月, 方) where Sudachi's choice is fine in a sentence. Worth a look: 今日は (こんにちは),
-      良い (いい), 研究所 (けんきゅうじょ).
-- [ ] Each Sudachi call costs ~100 ms in this build (fixed cost); `analyzeMany` batches texts to hide it. A newer
-      Sudachi build could remove it.
+- [ ] More reading fixes and speed: see wakachi's PENDING.md (Sudachi is now ~1 ms per sentence, our own build).
 
 ## Clean-up
 
