@@ -3,10 +3,10 @@
 A handoff for a fresh session. Everything needed to start is here; the details live in the files it points to.
 Written 2026-10-09.
 
-Next order: **2 → 3**. Item 4 is independent and can be done any time. Item 5 is parked.
+Next: **3 (React hooks)**. Item 2 is complete locally. Item 4 is independent and can be done any time. Item 5 is parked.
 
 1. [x] [Debug report](#1-debug-report) (implemented 2026-10-09)
-2. [TypeScript](#2-typescript) (all three packages)
+2. [x] [TypeScript](#2-typescript) (all three packages; implemented 2026-10-09)
 3. [React hooks](#3-react-hooks) (yomiage/react, wakachi/react)
 4. [Reading fixes](#4-reading-fixes) (wakachi)
 5. [Parked: yomiage memory on Safari](#5-parked-yomiage-memory-on-safari)
@@ -19,7 +19,7 @@ All in `~/Desktop/PikaPikaGems/`, each its own public GitHub repo under `PikaPik
 
 | Folder | What it is | Docs to read first |
 |---|---|---|
-| `kakera/` | Shared plumbing, bundled into both packages: big files split into parts, downloaded once into IndexedDB, a Web Worker per engine (`createPool`, `handle`), crash guard, timeouts, `kakera/wasm` | README.md, src/host.js |
+| `kakera/` | Shared plumbing, bundled into both packages: big files split into parts, downloaded once into IndexedDB, a Web Worker per engine (`createPool`, `handle`), crash guard, timeouts, `kakera/wasm` | README.md, src/host.ts |
 | `wakachi/` | Japanese analyzer in the browser: Sudachi (our own WebAssembly build) + furigana, readings, bunsetsu | API.md, PENDING.md |
 | `yomiage/` | Japanese text-to-speech in the browser: Tsukuyomi-chan voice (piper-plus + ONNX Runtime), presets | API.md, PENDING.md, NOTICE.md |
 | `jp-tts-playground/` | The playground site that uses both, installed from their GitHub releases | README.md, PENDING.md |
@@ -36,7 +36,8 @@ All in `~/Desktop/PikaPikaGems/`, each its own public GitHub repo under `PikaPik
 ### Working on them
 
 ```bash
-npm ci                 # in wakachi/ or yomiage/ (kakera has no dependencies)
+npm ci --prefix ../kakera # install build tools and build kakera first
+npm ci                 # in wakachi/ or yomiage/
 npm run build          # dist/
 npm run files          # files/ (downloads the Sudachi build or the voice model into .cache/ once)
 npm test               # Node tests; CI runs these plus `npm run test:types` on every push
@@ -96,7 +97,7 @@ The report is built in kakera (both packages share it) and exposed from each pac
 - **The device copy:** which parts are in IndexedDB, and which are missing. kakera's file store already knows this;
   `info()` uses it.
 - **Storage:** `navigator.storage.estimate()` and `navigator.storage.persisted()`.
-- **Crash guard:** the record kept in localStorage (`${prefix}:crashed:<key>`; see `createPool` in kakera/src/host.js).
+- **Crash guard:** the record kept in localStorage (`${prefix}:crashed:<key>`; see `createPool` in kakera/src/host.ts).
   If the last load crashed the tab: when, and until when loading is blocked.
 - **Log of the last load:** each step with time, file and part. kakera already emits these as `on("log")` lines and
   as `load()`'s `timings`; keep the last load's in memory.
@@ -112,6 +113,23 @@ Rules:
 - **Docs:** the planned sections in both API.md files are now current, and the PENDING items are checked off.
 
 ## 2. TypeScript
+
+**Completed locally (2026-10-09):** all three packages use strict TypeScript and generate declarations from source.
+Kakera builds JavaScript and declarations into `dist/`; wakachi and yomiage retain their esbuild bundles and publish
+self-contained declarations in `dist/types/`. Their original public APIs are preserved by compatibility tests.
+Build kakera first (`npm ci --prefix ../kakera`); then build either package. Rebuild after editing source.
+
+Checks passed:
+- kakera: 13 Node tests and 19 host checks in each of Chromium and WebKit.
+- wakachi: 23 Node tests and 13 analyzer checks in each browser.
+- yomiage: 23 Node tests and 14 voice checks in each browser.
+- Strict source checks, public type tests, and both packed packages checked outside the workspace without kakera.
+- Playground analysis and speech using both local packages together in Chromium and WebKit; no model/dictionary
+  downloads before explicit loading.
+
+Generated Sudachi glue and model/dictionary data are unchanged. Each repository has its own migration checkpoint;
+no releases or publishing are included.
+The instructions below record the migration scope.
 
 **Goal:** convert kakera, wakachi and yomiage from JavaScript (with hand-written `.d.ts`) to TypeScript, and generate
 the published `.d.ts` from the code. The owner asked why the packages weren't TypeScript; the answer was "no strong
@@ -190,14 +208,14 @@ Packaging and testing:
 `~/Desktop/PikaPikaGems/jp-word-ranks-data/OUTPUT/with_definition.tsv`, word in column 0, readings in column 19,
 comma-separated).
 
-- **Tool:** `node scripts/check-readings.mjs` in wakachi (after `npm run files`). It writes the mismatches to
+- **Tool:** `node scripts/check-readings.mjs` in wakachi (after `npm run build` and `npm run files`). It writes the mismatches to
   `.cache/readings-mismatches.tsv`: rank, word, wakachi's reading, expected readings, how Sudachi cut the word.
   - `--words 10000` for the most frequent only;
   - `--raw` for Sudachi without wakachi's fixes.
 - **Today (2026-10-09):**
   - all 37,608 kanji words: 2,682 raw → **2,303** with the fixes;
   - top 10,000: 391 → **261**.
-- **Where the fixes live:** `src/readings.js` (`fixReadings`): a word table, family words, rules for 何, 人, 所, 中,
+- **Where the fixes live:** `src/readings.ts` (`fixReadings`): a word table, family words, rules for 何, 人, 所, 中,
   会社, 私, numbers with counters, and so on. Tests are in `test/readings.test.mjs` (they need the Sudachi build from
   `npm run files`).
 
