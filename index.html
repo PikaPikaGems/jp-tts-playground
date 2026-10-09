@@ -9,10 +9,9 @@
   <script type="importmap">
   {
     "imports": {
-      "piper-plus": "./vendor/piper-plus/src/index.js",
-      "@piper-plus/g2p": "./vendor/g2p/src/index.js",
-      "onnxruntime-web": "./vendor/ort/ort.wasm.min.mjs",
-      "rubberband-wasm": "./vendor/rubberband/index.esm.js"
+      "yomiage": "./vendor/yomiage/yomiage.js",
+      "wakachi": "./vendor/wakachi/wakachi.js",
+      "wakachi/text": "./vendor/wakachi/text.js"
     }
   }
   </script>
@@ -38,7 +37,7 @@
     })();
   </script>
   <main>
-    <h1>日本語 TTS <span id="title-engines">— piper-plus vs Style-BERT-VITS2</span> <small style="font-weight:normal;opacity:.5;font-size:.7em">build 33</small></h1>
+    <h1>日本語 TTS <span id="title-engines">— piper-plus vs Style-BERT-VITS2</span> <small style="font-weight:normal;opacity:.5;font-size:.7em">build 37</small></h1>
 
     <label for="text">Text (shared by both engines)</label>
     <textarea id="text" rows="5">こんにちは、今日はいい天気ですね。</textarea>
@@ -49,50 +48,26 @@
 
     <div class="row">
       <label>Voice preset
-        <select id="preset">
-          <option value="0,0,0">Original (young girl)</option>
-          <optgroup label="Female">
-            <option value="-2,-0.5,0">Young woman</option>
-            <option value="-4,-1,0.2">Woman</option>
-            <option value="-6,-1.5,0.3">Mature woman</option>
-            <option value="-8,-2,0.35">Low mature woman / alto</option>
-          </optgroup>
-          <optgroup label="Male">
-            <option value="-7.5,-3,0">Young man</option>
-            <option value="-9,-4,0">Man</option>
-            <option value="-11,-5.5,0.3">Deep man</option>
-            <option value="-13,-7,0.3">Very deep man</option>
-          </optgroup>
-        </select>
+        <select id="preset"></select>
       </label>
-      <span style="opacity:.6;font-size:.8rem">sets Pitch, Voice size and Breathiness reduction on both panels (starting points - tune to taste)</span>
-    </div>
-
-    <div class="row">
-      <label class="switch"><input type="checkbox" id="clean-shift"> <b>Experimental: alternative voice shifting</b>
-        <span class="hint">for presets: part of the change is done by plain resampling and Rubber Band only does the rest. Measurements show no difference in noise level, but it may sound different - compare by ear.</span></label>
+      <span style="opacity:.6;font-size:.8rem">sets Pitch, Voice size and Breathiness reduction on both panels (chosen by ear for tsukuyomi-chan)</span>
     </div>
     <div class="row">
-      <label>Non-Japanese text (e.g. English)
+      <label>Non-Japanese sentences (e.g. English)
         <select id="foreign-voice">
-          <option value="browser">Read with the browser's built-in voice</option>
-          <option value="model">Read with the loaded voice model (English mode)</option>
+          <option value="read">Read them</option>
+          <option value="skip">Skip them</option>
         </select>
       </label>
-      <span style="opacity:.6;font-size:.8rem">sentences with no Japanese characters are detected automatically; the Japanese model mispronounces English by default</span>
+      <span style="opacity:.6;font-size:.8rem">sentences with no Japanese at all; piper-plus reads them in its English mode (with a Japanese accent), Style-BERT-VITS2 with the browser's voice</span>
     </div>
 
     <div class="cols">
       <!-- ============ piper-plus ============ -->
       <section class="card" id="piper">
-        <h2>piper-plus <small>VITS · ~40 MB</small></h2>
-        <select class="model">
-          <option value="models/tsukuyomi/model.onnx">tsukuyomi-chan</option>
-          <option value="models/css10/model.onnx">css10-ja</option>
-          <option value="models/mera/model.onnx">mera-chan (Apache-2.0)</option>
-        </select>
+        <h2>piper-plus <small>tsukuyomi-chan · via <a href="https://github.com/PikaPikaGems/yomiage">yomiage</a> · 65 MB download, kept on the device</small></h2>
         <div class="sliders">
-          <div class="ctl"><label>Speed <output data-for="speed"></output><input data-p="speed" type="range" min="0.5" max="1.5" step="0.05" value="1"></label>
+          <div class="ctl"><label>Speed <output data-for="speed"></output><input data-p="speed" type="range" min="0.5" max="1.5" step="0.05" value="0.8"></label>
             <small class="hint">How fast the voice talks (1.0× = normal, 1.5× = 50% faster). Changes tempo only, not pitch.</small></div>
           <div class="ctl"><label>Pitch <output data-for="pitch"></output><input data-p="pitch" type="range" min="-14" max="6" step="0.5" value="0"></label>
             <small class="hint">How high or low the voice is, in semitones (12 = one octave). Applied after the voice is generated; speed and voice size stay the same. Negative = lower.</small></div>
@@ -109,8 +84,9 @@
         <div class="row">
           <button class="load">Load model</button>
           <button class="speak" disabled>Speak</button>
-          <a class="download" hidden>WAV</a>
+          <a class="download" href="#" hidden>WAV</a>
         </div>
+        <div class="loading" hidden><progress max="1" value="0"></progress><div><b class="stage"></b> <small class="step"></small></div></div>
         <pre class="log"></pre>
       </section>
 
@@ -154,6 +130,7 @@
       <div class="row">
         <button id="reader-load">Load analyzer</button>
         <span id="reader-status" class="hint">Shows the text above with furigana on kanji and a space between bunsetsu. Hover or click a bunsetsu for its dictionary form.</span>
+        <progress id="reader-progress" max="1" value="0" hidden></progress>
       </div>
       <div class="row">
         <label class="switch"><input type="checkbox" id="study-mode"> <b>Study mode</b>
@@ -184,18 +161,16 @@
     <footer class="credits">
       <p>音声合成には、フリー素材キャラクター「つくよみちゃん」（© Rei Yumesaki）が無料公開している音声データを使用しています。<br>
         ■つくよみちゃんコーパス（CV.夢前黎）<a href="https://tyc.rei-yumesaki.net/material/corpus/">https://tyc.rei-yumesaki.net/material/corpus/</a></p>
-      <p>Other components: <a href="https://github.com/ayutaz/piper-plus">piper-plus</a> (MIT) · voice models by
-        <a href="https://huggingface.co/kizuna-intelligence/piper-plus-mera-multilingual">Kizuna Intelligence</a> (Apache-2.0) and the
-        <a href="https://github.com/Kyubyong/css10">CSS10</a> dataset (public domain) ·
+      <p>Other components: <a href="https://github.com/ayutaz/piper-plus">piper-plus</a> (MIT) via
+        <a href="https://github.com/PikaPikaGems/yomiage">yomiage</a> (MIT) ·
         <a href="https://github.com/WorksApplications/sudachi.rs">Sudachi</a> / SudachiDict (Apache-2.0) via
-        <a href="https://github.com/hata6502/sudachi-wasm">hata6502/sudachi-wasm</a> ·
-        <a href="https://breakfastquay.com/rubberband/">Rubber Band</a> (GPL) · ONNX Runtime (MIT).
+        <a href="https://github.com/hata6502/sudachi-wasm">hata6502/sudachi-wasm</a> · ONNX Runtime (MIT).
         See <a href="NOTICE.md">NOTICE.md</a>.</p>
       <p>Source code: <a href="https://github.com/PikaPikaGems/jp-tts-playground">github.com/PikaPikaGems/jp-tts-playground</a> ·
         licensed <a href="LICENSE">AGPL-3.0-or-later</a>.</p>
     </footer>
   </main>
   <div id="pop" role="tooltip" hidden></div>
-  <script type="module" src="app.js?v=33"></script>
+  <script type="module" src="app.js?v=37"></script>
 </body>
 </html>

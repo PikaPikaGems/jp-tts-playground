@@ -1,0 +1,97 @@
+{
+  "format": "kakera/1",
+  "name": "yomiage-tsukuyomi",
+  "version": "2452ce77f681",
+  "downloadSize": 64832247,
+  "files": [
+    {
+      "name": "ort.wasm",
+      "size": 14239897,
+      "gzip": true,
+      "parts": [
+        {
+          "file": "ort.wasm.part001.gz",
+          "size": 3687160,
+          "rawSize": 14239897,
+          "sha256": "235206a2c91492ee9b0cdd7217124b34a139c99c0d1f7e9b3142ee1f2455c58c"
+        }
+      ]
+    },
+    {
+      "name": "config.json",
+      "size": 6901,
+      "gzip": true,
+      "parts": [
+        {
+          "file": "config.json.part001.gz",
+          "size": 1339,
+          "rawSize": 6901,
+          "sha256": "0a14eeb1d6388bb178460d396a554940918478a8af3876cce39a9a0ab1bba3d9"
+        }
+      ]
+    },
+    {
+      "name": "model.onnx",
+      "size": 39652717,
+      "gzip": false,
+      "parts": [
+        {
+          "file": "model.onnx.part001",
+          "size": 20971520,
+          "rawSize": 20971520,
+          "sha256": "90024ea6395986cc016d5b5631ea15622ff08a5d7a08720881dfe4ae03374624"
+        },
+        {
+          "file": "model.onnx.part002",
+          "size": 18681197,
+          "rawSize": 18681197,
+          "sha256": "5475d2c94b64a433e44c5e74657e7c84c1e303e52a1c238fac056a9a142dbe9d"
+        }
+      ]
+    },
+    {
+      "name": "phonemizer.js",
+      "size": 21468,
+      "gzip": true,
+      "parts": [
+        {
+          "file": "phonemizer.js.part001.gz",
+          "size": 5817,
+          "rawSize": 21468,
+          "sha256": "affa3ddbf34c9bd3407d795f3b068ea17f722730bee989b6426e047ac8843298"
+        }
+      ]
+    },
+    {
+      "name": "phonemizer.wasm",
+      "size": 60077874,
+      "gzip": true,
+      "parts": [
+        {
+          "file": "phonemizer.wasm.part001.gz",
+          "size": 11321697,
+          "rawSize": 20971520,
+          "sha256": "2a609353d440eb3f5a3fb23ab563fe4cfabb35c14b79791e33d220820b105123"
+        },
+        {
+          "file": "phonemizer.wasm.part002.gz",
+          "size": 6607234,
+          "rawSize": 20971520,
+          "sha256": "49476e283b06e01ac9db1b44e6975c1631c418387df3b4ce68aca2ff07a09d48"
+        },
+        {
+          "file": "phonemizer.wasm.part003.gz",
+          "size": 3556283,
+          "rawSize": 18134834,
+          "sha256": "3e55f9d1f8d1db7e1b601e323dd7e827c8693647ba0984c515adbb3394c73e1a"
+        }
+      ]
+    }
+  ],
+  "meta": {
+    "yomiage": "0.1.0",
+    "onnxruntimeWeb": "1.30.0",
+    "piperPlus": "0.7.0",
+    "model": "ayousanz/piper-plus-tsukuyomi-chan/tsukuyomi-chan-6lang-fp16.onnx"
+  }
+}
