@@ -3,8 +3,8 @@
 Where the package work stands, so it can be picked up later. Packages: **wakachi** (Sudachi analyzer,
 github.com/PikaPikaGems/wakachi), **yomiage** (Tsukuyomi-chan voice, github.com/PikaPikaGems/yomiage), **kakera** (shared
 plumbing bundled into both, github.com/PikaPikaGems/kakera), all public. Each has its own PENDING.md; demo sites:
-https://pikapikagems.github.io/wakachi/ and https://pikapikagems.github.io/yomiage/. This playground uses both
-packages from the folders next to it (`file:../yomiage`, `file:../wakachi`).
+https://pikapikagems.github.io/wakachi/ and https://pikapikagems.github.io/yomiage/. This playground installs both
+packages from their v0.1.0 releases.
 
 ## Both packages
 
@@ -13,9 +13,9 @@ packages from the folders next to it (`file:../yomiage`, `file:../wakachi`).
 - [ ] Test on an iPhone: https://pikapikagems.github.io/jp-tts-playground/ once published (or the LAN address of
       the packages' test pages on the same Wi-Fi). Watch for: no sound, a stalled loading bar, the page reloading
       (memory), slow analysis.
-- [ ] First GitHub releases (v0.1.0) with the files: `copy-files` downloads from the release by default, so no other
-      project can use a package before this. wakachi's repo is private, so it needs to be public first.
-- [ ] Playground: install both from their releases instead of `file:../`, so a fresh clone runs.
+- [x] First releases, v0.1.0 (pre-releases, 2026-10-09): github.com/PikaPikaGems/wakachi/releases/tag/v0.1.0 and
+      github.com/PikaPikaGems/yomiage/releases/tag/v0.1.0. The playground installs both from them (checked: install,
+      files downloaded with an empty cache, dev server and deploy build: voice, furigana, no console errors).
 - [ ] React: `yomiage/react` (`useVoice`) and `wakachi/react` (`useAnalysis`, `<Furigana>`), React as an optional peer
       dependency.
 - [ ] CI for the tests (Node tests and the browser test pages; today they run only by hand).

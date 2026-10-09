@@ -29,14 +29,14 @@ and shows it with furigana, bunsetsu grouping, part-of-speech colours and a dict
 Needs Node 22+ and Python 3.
 
 ```bash
-npm install              # needs yomiage and wakachi checked out next to this one (../yomiage, ../wakachi, built), see below
-npm start                # copies their files into yomiage/ and wakachi/, then serves http://localhost:8080
+npm install              # installs yomiage and wakachi from their GitHub releases
+npm start                # downloads their files into yomiage/ and wakachi/ (once, 110 MB), then serves http://localhost:8080
 ```
 
-**yomiage** and **wakachi** are installed from the folders next to this one (`"yomiage": "file:../yomiage"`,
-`"wakachi": "file:../wakachi"`), and their files come from `../yomiage/files` and `../wakachi/files` (`npm run files`;
-in each package: `npm install && npm run build && npm run files`). Once they have GitHub releases, both will come
-from there instead.
+**yomiage** and **wakachi** are installed like any app would: from their release tarballs (see `package.json`), with
+`copy-files` downloading the voice and dictionary files from the same releases (`npm run files`, run by `npm start`
+and `npm run build:deploy`; cached in `~/.cache/yomiage` and `~/.cache/wakachi`). To try a local checkout instead:
+`npm install ../wakachi` and `wakachi copy-files wakachi --from ../wakachi/files`.
 
 Open http://localhost:8080, press **Load model** in the piper-plus panel, then **Speak**. Press **Load analyzer** in the
 reading view (the first time this downloads 44 MB; afterwards it comes from your browser's IndexedDB cache).

@@ -6,8 +6,8 @@
     "prestart": "npm run files",
     "start": "python3 serve.py 8080",
     "files": "npm run yomiage:files && npm run wakachi:files",
-    "yomiage:files": "yomiage copy-files yomiage --from ../yomiage/files",
-    "wakachi:files": "wakachi copy-files wakachi --from ../wakachi/files",
+    "yomiage:files": "yomiage copy-files yomiage",
+    "wakachi:files": "wakachi copy-files wakachi",
     "fetch-assets:sbv2": "node scripts/fetch-assets.mjs",
     "build:sbv2": "node build.mjs",
     "prebuild:deploy": "npm run files",
@@ -19,8 +19,8 @@
     "@jsr/hdae__fetch-cache": "^0.8.0",
     "@jsr/hdae__sbv2-web": "^0.4.1",
     "@jsr/hdae__yomi": "^0.4.2",
-    "yomiage": "file:../yomiage",
-    "wakachi": "file:../wakachi"
+    "yomiage": "https://github.com/PikaPikaGems/yomiage/releases/download/v0.1.0/yomiage-0.1.0.tgz",
+    "wakachi": "https://github.com/PikaPikaGems/wakachi/releases/download/v0.1.0/wakachi-0.1.0.tgz"
   },
   "devDependencies": {
     "esbuild": "^0.28.2"
