@@ -903,6 +903,12 @@ var Playback = class {
     this.last = new Promise((resolve) => {
       src.onended = () => {
         this.sources.delete(src);
+        src.onended = null;
+        try {
+          src.disconnect();
+          src.buffer = null;
+        } catch {
+        }
         resolve();
       };
     });
@@ -959,7 +965,7 @@ function toWav({ samples, sampleRate }) {
 }
 
 // src/index.js
-var VERSION = true ? "0.1.0" : "dev";
+var VERSION = true ? "0.2.0" : "dev";
 var CREDIT = "\u97F3\u58F0\u5408\u6210\u306B\u306F\u3001\u30D5\u30EA\u30FC\u7D20\u6750\u30AD\u30E3\u30E9\u30AF\u30BF\u30FC\u300C\u3064\u304F\u3088\u307F\u3061\u3083\u3093\u300D\uFF08\xA9 Rei Yumesaki\uFF09\u304C\u7121\u6599\u516C\u958B\u3057\u3066\u3044\u308B\u97F3\u58F0\u30C7\u30FC\u30BF\u3092\u4F7F\u7528\u3057\u3066\u3044\u307E\u3059\u3002\u25A0\u3064\u304F\u3088\u307F\u3061\u3083\u3093\u30B3\u30FC\u30D1\u30B9\uFF08CV.\u5922\u524D\u9ECE\uFF09https://tyc.rei-yumesaki.net/material/corpus/";
 var VoiceError = class extends KakeraError {
 };
