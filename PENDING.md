@@ -19,7 +19,7 @@ packages from their v0.1.0 releases.
       files downloaded with an empty cache, dev server and deploy build: voice, furigana, no console errors).
 - [ ] React (designed, in each API.md): `useYomiage()` / `useYomiageEngine()` and `useWakachi(text)` /
       `useWakachiEngine()`. Nothing loads unless the app calls `load()`. React as an optional peer dependency.
-- [ ] Debug report (`debugReport()`, in kakera) for bug reports.
+- [x] Debug report (`debugReport()`, in kakera) for bug reports (2026-10-09).
 - [x] CI (2026-10-09): Node tests and type checks run on GitHub on every push in all three packages.
 - [ ] CI for the browser test pages in WebKit, and yomiage's memory check: parked, see yomiage's PENDING.md.
 

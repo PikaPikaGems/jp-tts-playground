@@ -3,9 +3,9 @@
 A handoff for a fresh session. Everything needed to start is here; the details live in the files it points to.
 Written 2026-10-09.
 
-Recommended order: **1 → 2 → 3**. Item 4 is independent and can be done any time. Item 5 is parked.
+Next order: **2 → 3**. Item 4 is independent and can be done any time. Item 5 is parked.
 
-1. [Debug report](#1-debug-report) (kakera, then both packages)
+1. [x] [Debug report](#1-debug-report) (implemented 2026-10-09)
 2. [TypeScript](#2-typescript) (all three packages)
 3. [React hooks](#3-react-hooks) (yomiage/react, wakachi/react)
 4. [Reading fixes](#4-reading-fixes) (wakachi)
@@ -82,15 +82,13 @@ also needs a release.
 ## 1. Debug report
 
 **Goal:** one call that returns a block of plain text a user can paste into a bug report when loading or speaking
-fails. Designed and agreed, not built. It's described in yomiage/API.md §11 and wakachi/API.md §12 ("Debug report
-*(planned)*"), and listed in kakera/PENDING.md.
+fails. Implemented 2026-10-09 in kakera and exposed by both package APIs.
 
 **API:**
 - `voice.debugReport()` / `analyzer.debugReport()` → `Promise<string>`.
 - Later, `e.debugReport()` on the React engine hooks (item 3).
 
-**Build it in kakera** (both packages share it), then expose it from each package's `src/index.js` and types. It
-should contain:
+The report is built in kakera (both packages share it) and exposed from each package's API and types. It contains:
 - **Versions:** the package version (passed in by the package), kakera's version, the date.
 - **Browser and device:** `navigator.userAgent`; `navigator.deviceMemory` if present; `crossOriginIsolated`.
 - **Files:** the files address (`filesUrl`) and the manifest version, and whether it matches the package's.
@@ -108,10 +106,10 @@ Rules:
   paste into a public GitHub issue.
 - **It must work in every state:** never loaded, loading, failed, `unavailable`, after `dispose()`. It must never
   throw; a missing piece is written as "unknown".
-- **Tests:** a Node test in kakera (`test/files.test.mjs` / a new test with `memoryStorage()` and the test engine in
-  `test/test-engine.js`) checks the report's sections, a failed load (missing file), and that text given to calls
-  doesn't appear. Add a "Copy debug report" button to both test pages (`test/voice.html`, `test/analyzer.html`).
-- **Docs:** replace the "*(planned)*" sections in both API.md files, and tick the PENDING items.
+- **Tests:** kakera's `test/debug-report.test.mjs` checks the report sections, a failed load, and that text given to
+  calls doesn't appear. `fileStore.diagnostics()` is checked for cached and missing parts. Both package test pages
+  (`test/voice.html`, `test/analyzer.html`) have a "Copy debug report" button.
+- **Docs:** the planned sections in both API.md files are now current, and the PENDING items are checked off.
 
 ## 2. TypeScript
 
