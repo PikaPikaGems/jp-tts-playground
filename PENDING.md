@@ -18,7 +18,8 @@ packages from their v0.1.0 releases.
 - [ ] React (designed, in each API.md): `useYomiage()` / `useYomiageEngine()` and `useWakachi(text)` /
       `useWakachiEngine()`. Nothing loads unless the app calls `load()`. React as an optional peer dependency.
 - [ ] Debug report (`debugReport()`, in kakera) for bug reports.
-- [ ] CI for the tests (Node tests and the browser test pages; today they run only by hand).
+- [x] CI (2026-10-09): Node tests and type checks run on GitHub on every push in all three packages.
+- [ ] CI for the browser test pages in WebKit, and yomiage's memory check: parked, see yomiage's PENDING.md.
 
 ## wakachi
 
