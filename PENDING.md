@@ -1,5 +1,7 @@
 # Pending
 
+Next work, with full context for a fresh session: [TODO.md](TODO.md).
+
 Where the package work stands, so it can be picked up later. Packages: **wakachi** (Sudachi analyzer,
 github.com/PikaPikaGems/wakachi), **yomiage** (Tsukuyomi-chan voice, github.com/PikaPikaGems/yomiage), **kakera** (shared
 plumbing bundled into both, github.com/PikaPikaGems/kakera), all public. Each has its own PENDING.md; demo sites:
