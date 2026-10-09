@@ -15,8 +15,9 @@ packages from their v0.1.0 releases.
 - [x] First releases, v0.1.0 (pre-releases, 2026-10-09): github.com/PikaPikaGems/wakachi/releases/tag/v0.1.0 and
       github.com/PikaPikaGems/yomiage/releases/tag/v0.1.0. The playground installs both from them (checked: install,
       files downloaded with an empty cache, dev server and deploy build: voice, furigana, no console errors).
-- [ ] React: `yomiage/react` (`useVoice`) and `wakachi/react` (`useAnalysis`, `<Furigana>`), React as an optional peer
-      dependency.
+- [ ] React (designed, in each API.md): `useYomiage()` / `useYomiageEngine()` and `useWakachi(text)` /
+      `useWakachiEngine()`. Nothing loads unless the app calls `load()`. React as an optional peer dependency.
+- [ ] Debug report (`debugReport()`, in kakera) for bug reports.
 - [ ] CI for the tests (Node tests and the browser test pages; today they run only by hand).
 
 ## wakachi
