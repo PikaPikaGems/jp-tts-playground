@@ -11,7 +11,7 @@ packages from their releases (wakachi v0.2.1, yomiage v0.3.1).
 ## Both packages
 
 - [x] Publish the playground site (2026-10-09, built from the v0.1.0 releases).
-- [ ] Test on an iPhone: https://pikapikagems.github.io/jp-tts-playground/ once published (or the LAN address of
+- [ ] **Parked (2026-10-10, owner).** Test on an iPhone: https://pikapikagems.github.io/jp-tts-playground/ once published (or the LAN address of
       the packages' test pages on the same Wi-Fi). Watch for: no sound, a stalled loading bar, the page reloading
       (memory), slow analysis.
 - [x] yomiage v0.2.0 (2026-10-09, Safari memory fixes): the playground installs it. First releases, v0.1.0 (pre-releases, 2026-10-09): github.com/PikaPikaGems/wakachi/releases/tag/v0.1.0 and
@@ -32,7 +32,7 @@ packages from their releases (wakachi v0.2.1, yomiage v0.3.1).
 
 - [x] Own repo on kakera, `copy-files`, types, test page (2026-10-09).
 - [x] Everyday readings: 私 わたし, 明日 あした, 日本 にほん, お母さん, 言う いう, numbers with counters.
-- [ ] Your feature ideas for wakachi (not written down yet).
+- [ ] **Parked (2026-10-10, owner).** Your feature ideas for wakachi (not written down yet).
 - [ ] More reading fixes and speed: see wakachi's PENDING.md (Sudachi is now ~1 ms per sentence, our own build).
 
 ## Clean-up
