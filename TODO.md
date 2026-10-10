@@ -32,7 +32,7 @@ All in `~/Desktop/PikaPikaGems/`, each its own public GitHub repo under `PikaPik
 - **Demos:** https://pikapikagems.github.io/wakachi/ and https://pikapikagems.github.io/yomiage/ (`npm run publish:demo`
   in each package). Playground: https://pikapikagems.github.io/jp-tts-playground/
   (`npm run build:deploy && npm run publish:gh-pages`).
-- **Versions now:** wakachi 0.2.1, yomiage 0.3.1 (pre-releases on GitHub; not on npm).
+- **Versions now:** wakachi 0.2.1, yomiage 0.3.2 (pre-releases on GitHub; not on npm).
 
 ### Working on them
 

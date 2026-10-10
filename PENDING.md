@@ -6,7 +6,7 @@ Where the package work stands, so it can be picked up later. Packages: **wakachi
 github.com/PikaPikaGems/wakachi), **yomiage** (Tsukuyomi-chan voice, github.com/PikaPikaGems/yomiage), **kakera** (shared
 plumbing bundled into both, github.com/PikaPikaGems/kakera), all public. Each has its own PENDING.md; demo sites:
 https://pikapikagems.github.io/wakachi/ and https://pikapikagems.github.io/yomiage/. This playground installs both
-packages from their releases (wakachi v0.2.1, yomiage v0.3.1).
+packages from their releases (wakachi v0.2.1, yomiage v0.3.2).
 
 ## Both packages
 
@@ -21,6 +21,8 @@ packages from their releases (wakachi v0.2.1, yomiage v0.3.1).
       `clearCache()` turns the feature off. The playground installs them (checked: furigana, speech, no console errors).
 - [x] wakachi v0.2.1 and yomiage v0.3.1 (2026-10-10): `copy-files` keeps `manifest.json` current when the files
       are unchanged; the debug report's `manifestMatchesPackage` compares the right version.
+- [x] yomiage v0.3.2 (2026-10-10): hiding the page after `dispose()` and `load()` stops speech again (fixed in
+      kakera). Checked in the playground: furigana, speech, nothing downloads before a click, no console errors.
 - [x] React (2026-10-10, released in wakachi v0.2.0 / yomiage v0.3.0): `useYomiage()` / `useYomiageEngine()` and `useWakachi(text)` /
       `useWakachiEngine()` (yomiage API.md §11, wakachi API.md §12). Nothing loads unless the app calls `load()`.
       React as an optional peer dependency.

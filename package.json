@@ -19,7 +19,7 @@
     "@jsr/hdae__fetch-cache": "^0.8.0",
     "@jsr/hdae__sbv2-web": "^0.4.1",
     "@jsr/hdae__yomi": "^0.4.2",
-    "yomiage": "https://github.com/PikaPikaGems/yomiage/releases/download/v0.3.1/yomiage-0.3.1.tgz",
+    "yomiage": "https://github.com/PikaPikaGems/yomiage/releases/download/v0.3.2/yomiage-0.3.2.tgz",
     "wakachi": "https://github.com/PikaPikaGems/wakachi/releases/download/v0.2.1/wakachi-0.2.1.tgz"
   },
   "devDependencies": {
