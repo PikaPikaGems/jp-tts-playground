@@ -3,11 +3,12 @@
 A handoff for a fresh session. Everything needed to start is here; the details live in the files it points to.
 Written 2026-10-09.
 
-Items 1–3 are done (3 not released yet: ask the owner first). Next: **4 (reading fixes)**. Item 5 is parked.
+Items 1–3 are done and released (wakachi 0.2.0, yomiage 0.3.0). Item 4 (reading fixes) is on hold: the owner said
+not yet. Item 5 is parked.
 
 1. [x] [Debug report](#1-debug-report) (implemented 2026-10-09)
 2. [x] [TypeScript](#2-typescript) (all three packages; implemented 2026-10-09)
-3. [x] [React hooks](#3-react-hooks) (yomiage/react, wakachi/react; implemented 2026-10-10, not released)
+3. [x] [React hooks](#3-react-hooks) (yomiage/react, wakachi/react; released 2026-10-10)
 4. [Reading fixes](#4-reading-fixes) (wakachi)
 5. [Parked: yomiage memory on Safari](#5-parked-yomiage-memory-on-safari)
 
@@ -31,7 +32,7 @@ All in `~/Desktop/PikaPikaGems/`, each its own public GitHub repo under `PikaPik
 - **Demos:** https://pikapikagems.github.io/wakachi/ and https://pikapikagems.github.io/yomiage/ (`npm run publish:demo`
   in each package). Playground: https://pikapikagems.github.io/jp-tts-playground/
   (`npm run build:deploy && npm run publish:gh-pages`).
-- **Versions now:** wakachi 0.1.0, yomiage 0.2.0 (pre-releases on GitHub; not on npm).
+- **Versions now:** wakachi 0.2.0, yomiage 0.3.0 (pre-releases on GitHub; not on npm).
 
 ### Working on them
 
@@ -154,7 +155,7 @@ Approach (agreed in outline; check it with the owner if something gets complicat
 
 ## 3. React hooks
 
-**Implemented 2026-10-10** (branch `react-hooks` in kakera, wakachi, yomiage; not released). How it turned out:
+**Implemented and released 2026-10-10** (wakachi 0.2.0, yomiage 0.3.0). How it turned out:
 - kakera has `engineStore()` (`kakera/store`): the engine hooks' state, without React.
 - Each package has `src/react.ts` (the hooks) and `src/react-state.ts` (the use hook's state without React, for the
   Node tests). `dist/react.js` imports the main bundle (`./wakachi.js` / `./yomiage.js`), so the page has one engine.

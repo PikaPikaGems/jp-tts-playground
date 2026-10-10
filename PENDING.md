@@ -6,7 +6,7 @@ Where the package work stands, so it can be picked up later. Packages: **wakachi
 github.com/PikaPikaGems/wakachi), **yomiage** (Tsukuyomi-chan voice, github.com/PikaPikaGems/yomiage), **kakera** (shared
 plumbing bundled into both, github.com/PikaPikaGems/kakera), all public. Each has its own PENDING.md; demo sites:
 https://pikapikagems.github.io/wakachi/ and https://pikapikagems.github.io/yomiage/. This playground installs both
-packages from their v0.1.0 releases.
+packages from their releases (wakachi v0.2.0, yomiage v0.3.0).
 
 ## Both packages
 
@@ -17,7 +17,9 @@ packages from their v0.1.0 releases.
 - [x] yomiage v0.2.0 (2026-10-09, Safari memory fixes): the playground installs it. First releases, v0.1.0 (pre-releases, 2026-10-09): github.com/PikaPikaGems/wakachi/releases/tag/v0.1.0 and
       github.com/PikaPikaGems/yomiage/releases/tag/v0.1.0. The playground installs both from them (checked: install,
       files downloaded with an empty cache, dev server and deploy build: voice, furigana, no console errors).
-- [x] React (2026-10-10, not released yet): `useYomiage()` / `useYomiageEngine()` and `useWakachi(text)` /
+- [x] wakachi v0.2.0 and yomiage v0.3.0 (pre-releases, 2026-10-10): React hooks, debug report, TypeScript,
+      `clearCache()` turns the feature off. The playground installs them (checked: furigana, speech, no console errors).
+- [x] React (2026-10-10, released in wakachi v0.2.0 / yomiage v0.3.0): `useYomiage()` / `useYomiageEngine()` and `useWakachi(text)` /
       `useWakachiEngine()` (yomiage API.md §11, wakachi API.md §12). Nothing loads unless the app calls `load()`.
       React as an optional peer dependency.
 - [x] Debug report (`debugReport()`, in kakera) for bug reports (2026-10-09).
