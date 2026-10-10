@@ -147,7 +147,13 @@ function fileStore({ dbName, storage: suppliedStorage, fetch: fetchFn } = {}) {
         return { name: file.name, parts };
       });
       return {
-        manifest: { name: manifest.name, version: manifest.version, format: manifest.format },
+        // `version` is a hash of the files' contents; `meta` says which package version made them (e.g. { wakachi: "0.2.0" })
+        manifest: {
+          name: manifest.name,
+          version: manifest.version,
+          format: manifest.format,
+          meta: Object.fromEntries(Object.entries(manifest.meta ?? {}).filter(([, v]) => typeof v === "string"))
+        },
         cached: complete,
         files
       };
@@ -843,7 +849,8 @@ function createPool({ prefix, ErrorClass = KakeraError }) {
           },
           filesUrl: safeUrl(this._host.url.replace(/manifest\.json(?:\?.*)?$/, "")),
           manifest: files?.manifest ?? "unknown",
-          manifestMatchesPackage: files?.manifest?.version == null ? "unknown" : files.manifest.version === packageVersion,
+          // the package version the files were made by (manifest meta), against the page's package version
+          manifestMatchesPackage: files?.manifest?.meta?.[packageName] == null ? "unknown" : files.manifest.meta[packageName] === packageVersion,
           files: files?.files ?? "unknown",
           filesError: files?.error ?? void 0,
           status: this.status,
@@ -1243,7 +1250,7 @@ function toWav({ samples, sampleRate }) {
 }
 
 // src/index.ts
-var VERSION2 = true ? "0.3.0" : "dev";
+var VERSION2 = true ? "0.3.1" : "dev";
 var CREDIT = "\u97F3\u58F0\u5408\u6210\u306B\u306F\u3001\u30D5\u30EA\u30FC\u7D20\u6750\u30AD\u30E3\u30E9\u30AF\u30BF\u30FC\u300C\u3064\u304F\u3088\u307F\u3061\u3083\u3093\u300D\uFF08\xA9 Rei Yumesaki\uFF09\u304C\u7121\u6599\u516C\u958B\u3057\u3066\u3044\u308B\u97F3\u58F0\u30C7\u30FC\u30BF\u3092\u4F7F\u7528\u3057\u3066\u3044\u307E\u3059\u3002\u25A0\u3064\u304F\u3088\u307F\u3061\u3083\u3093\u30B3\u30FC\u30D1\u30B9\uFF08CV.\u5922\u524D\u9ECE\uFF09https://tyc.rei-yumesaki.net/material/corpus/";
 var VoiceErrorBase = KakeraError;
 var VoiceError = class extends VoiceErrorBase {

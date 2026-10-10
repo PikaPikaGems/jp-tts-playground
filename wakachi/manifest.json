@@ -62,7 +62,7 @@
     }
   ],
   "meta": {
-    "wakachi": "0.1.0",
+    "wakachi": "0.2.1",
     "sudachi": "sudachi-60d6e1c-small20260723",
     "dictionary": "SudachiDict small 20260723",
     "segments": [

@@ -1,6 +1,6 @@
 # Third-party licences
 
-wakachi-worker.js (wakachi 0.2.0, MIT) and the dictionary files next to it contain the software below.
+wakachi-worker.js (wakachi 0.2.1, MIT) and the dictionary files next to it contain the software below.
 
 ## Sudachi and SudachiDict
 

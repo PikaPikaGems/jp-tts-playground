@@ -1,6 +1,6 @@
 # Third-party licences
 
-yomiage-worker.js (yomiage 0.3.0, MIT) and the voice files next to it contain the software below.
+yomiage-worker.js (yomiage 0.3.1, MIT) and the voice files next to it contain the software below.
 The Tsukuyomi-chan voice model has its own terms, including a required credit: see yomiage's NOTICE.md.
 
 ## piper-plus 0.7.0

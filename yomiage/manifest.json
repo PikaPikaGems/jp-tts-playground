@@ -102,7 +102,7 @@
     }
   ],
   "meta": {
-    "yomiage": "0.2.0",
+    "yomiage": "0.3.1",
     "onnxruntimeWeb": "1.30.0",
     "piperPlus": "0.7.0",
     "model": "ayousanz/piper-plus-tsukuyomi-chan/tsukuyomi-chan-6lang-fp16.onnx",

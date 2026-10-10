@@ -147,7 +147,13 @@ function fileStore({ dbName, storage: suppliedStorage, fetch: fetchFn } = {}) {
         return { name: file.name, parts };
       });
       return {
-        manifest: { name: manifest.name, version: manifest.version, format: manifest.format },
+        // `version` is a hash of the files' contents; `meta` says which package version made them (e.g. { wakachi: "0.2.0" })
+        manifest: {
+          name: manifest.name,
+          version: manifest.version,
+          format: manifest.format,
+          meta: Object.fromEntries(Object.entries(manifest.meta ?? {}).filter(([, v]) => typeof v === "string"))
+        },
         cached: complete,
         files
       };
@@ -843,7 +849,8 @@ function createPool({ prefix, ErrorClass = KakeraError }) {
           },
           filesUrl: safeUrl(this._host.url.replace(/manifest\.json(?:\?.*)?$/, "")),
           manifest: files?.manifest ?? "unknown",
-          manifestMatchesPackage: files?.manifest?.version == null ? "unknown" : files.manifest.version === packageVersion,
+          // the package version the files were made by (manifest meta), against the page's package version
+          manifestMatchesPackage: files?.manifest?.meta?.[packageName] == null ? "unknown" : files.manifest.meta[packageName] === packageVersion,
           files: files?.files ?? "unknown",
           filesError: files?.error ?? void 0,
           status: this.status,
@@ -1572,7 +1579,7 @@ var POS_ENGLISH = Object.freeze({
 });
 
 // src/index.ts
-var VERSION2 = true ? "0.2.0" : "dev";
+var VERSION2 = true ? "0.2.1" : "dev";
 var AnalyzerErrorBase = KakeraError;
 var AnalyzerError = class extends AnalyzerErrorBase {
   constructor(code, message, options) {
