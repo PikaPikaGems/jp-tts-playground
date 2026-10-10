@@ -17,8 +17,9 @@ packages from their v0.1.0 releases.
 - [x] yomiage v0.2.0 (2026-10-09, Safari memory fixes): the playground installs it. First releases, v0.1.0 (pre-releases, 2026-10-09): github.com/PikaPikaGems/wakachi/releases/tag/v0.1.0 and
       github.com/PikaPikaGems/yomiage/releases/tag/v0.1.0. The playground installs both from them (checked: install,
       files downloaded with an empty cache, dev server and deploy build: voice, furigana, no console errors).
-- [ ] React (designed, in each API.md): `useYomiage()` / `useYomiageEngine()` and `useWakachi(text)` /
-      `useWakachiEngine()`. Nothing loads unless the app calls `load()`. React as an optional peer dependency.
+- [x] React (2026-10-10, not released yet): `useYomiage()` / `useYomiageEngine()` and `useWakachi(text)` /
+      `useWakachiEngine()` (yomiage API.md §11, wakachi API.md §12). Nothing loads unless the app calls `load()`.
+      React as an optional peer dependency.
 - [x] Debug report (`debugReport()`, in kakera) for bug reports (2026-10-09).
 - [x] CI (2026-10-09): Node tests and type checks run on GitHub on every push in all three packages.
 - [ ] CI for the browser test pages in WebKit, and yomiage's memory check: parked, see yomiage's PENDING.md.

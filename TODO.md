@@ -3,11 +3,11 @@
 A handoff for a fresh session. Everything needed to start is here; the details live in the files it points to.
 Written 2026-10-09.
 
-Next: **3 (React hooks)**. Item 2 is complete locally. Item 4 is independent and can be done any time. Item 5 is parked.
+Items 1–3 are done (3 not released yet: ask the owner first). Next: **4 (reading fixes)**. Item 5 is parked.
 
 1. [x] [Debug report](#1-debug-report) (implemented 2026-10-09)
 2. [x] [TypeScript](#2-typescript) (all three packages; implemented 2026-10-09)
-3. [React hooks](#3-react-hooks) (yomiage/react, wakachi/react)
+3. [x] [React hooks](#3-react-hooks) (yomiage/react, wakachi/react; implemented 2026-10-10, not released)
 4. [Reading fixes](#4-reading-fixes) (wakachi)
 5. [Parked: yomiage memory on Safari](#5-parked-yomiage-memory-on-safari)
 
@@ -114,7 +114,7 @@ Rules:
 
 ## 2. TypeScript
 
-**Completed locally (2026-10-09):** all three packages use strict TypeScript and generate declarations from source.
+**Completed (2026-10-09, merged):** all three packages use strict TypeScript and generate declarations from source.
 Kakera builds JavaScript and declarations into `dist/`; wakachi and yomiage retain their esbuild bundles and publish
 self-contained declarations in `dist/types/`. Their original public APIs are preserved by compatibility tests.
 Build kakera first (`npm ci --prefix ../kakera`); then build either package. Rebuild after editing source.
@@ -153,6 +153,20 @@ Approach (agreed in outline; check it with the owner if something gets complicat
 - **Docs:** update READMEs/API.md where they mention `types/`.
 
 ## 3. React hooks
+
+**Implemented 2026-10-10** (branch `react-hooks` in kakera, wakachi, yomiage; not released). How it turned out:
+- kakera has `engineStore()` (`kakera/store`): the engine hooks' state, without React.
+- Each package has `src/react.ts` (the hooks) and `src/react-state.ts` (the use hook's state without React, for the
+  Node tests). `dist/react.js` imports the main bundle (`./wakachi.js` / `./yomiage.js`), so the page has one engine.
+- **One shared handle per `filesUrl`** for all hooks, not one per hook: in kakera each handle has its own "loaded"
+  state, so with one handle per hook a `load()` in one component wouldn't have unlocked the others. Per-hook
+  options (wakachi's `readings` / `everydayReadings`, yomiage's voice settings) are applied by each hook.
+- The use hooks never reject: failures show as `status: "error"` with `retry()`. `cached` / `downloadMB` are `null`
+  until the manifest has been read.
+- Fixed in kakera on the way: a handle said `"ready"` before its own `load()` had finished.
+- Checks: Node tests, type tests, and `test/react.html` in each package (Chromium and WebKit).
+
+The original plan:
 
 **Goal:** `yomiage/react` and `wakachi/react`, with React as an *optional* peer dependency (plain-JS apps never need
 it). The design was agreed with the owner and is written up in yomiage/API.md §11 and wakachi/API.md §12. Read those
@@ -198,7 +212,7 @@ Packaging and testing:
   - Node tests with a fake engine where possible (status transitions, stale handling, no load on mount);
   - a small test page per package using the hooks;
   - types: extend `test/types` with hook usage, including the status narrowing.
-- **Docs:** remove "*(planned, not built yet)*" from API.md §11 / §12 once built; update README and PENDING.
+- **Docs:** remove "*(planned, not built yet)*" from API.md §11 / §12 once built; update README and PENDING. (Done.)
 - **Then**, with the owner's OK: release both packages, and consider moving jp-tts-playground's reader to the hooks
   only if the owner wants (it's plain JS today).
 
