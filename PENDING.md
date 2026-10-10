@@ -37,5 +37,5 @@ packages from their releases (wakachi v0.2.1, yomiage v0.3.1).
 
 ## Clean-up
 
-- [ ] Delete the unused local `models/` folders (css10, mera, tsukuyomi, sudachi; git-ignored). `models/sbv2-*`
-      is still used by the local Style-BERT-VITS2 panel.
+- [x] Deleted the unused local `models/` folders (css10, mera, tsukuyomi, sudachi) (2026-10-10). `models/sbv2-*` is
+      still used by the local Style-BERT-VITS2 panel.
