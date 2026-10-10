@@ -1,5 +1,6 @@
-// ../kakera/src/errors.js
+// ../kakera/dist/errors.js
 var KakeraError = class extends Error {
+  code;
   /**
    * @param {string} code
    * @param {string} message
@@ -12,12 +13,15 @@ var KakeraError = class extends Error {
   }
 };
 var codedError = (code, message) => Object.assign(new Error(message), { code });
+function errorFields(value) {
+  return value != null && (typeof value === "object" || typeof value === "function") ? value : {};
+}
 
-// ../kakera/src/files.js
+// ../kakera/dist/files.js
 var MANIFEST_FORMAT = "kakera/1";
 function indexedDbStorage(dbName) {
   const open = () => new Promise((resolve, reject) => {
-    const req = indexedDB.open(dbName, 1);
+    const req = indexedDB.open(String(dbName), 1);
     req.onupgradeneeded = () => req.result.createObjectStore("files");
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error);
@@ -41,7 +45,8 @@ function indexedDbStorage(dbName) {
     put: (key, value) => tx("readwrite", (s) => s.put(value, key)),
     keys: () => tx("readonly", (s) => s.getAllKeys()),
     remove: (keys) => keys.length ? tx("readwrite", (s) => {
-      for (const k of keys) s.delete(k);
+      for (const k of keys)
+        s.delete(k);
     }) : Promise.resolve()
   };
 }
@@ -53,27 +58,31 @@ async function* gunzip(bytes) {
   const reader = new Blob([bytes]).stream().pipeThrough(new DecompressionStream("gzip")).getReader();
   for (; ; ) {
     const { done, value } = await reader.read();
-    if (done) return;
+    if (done)
+      return;
     yield value;
   }
 }
-function fileStore({ dbName, storage, fetch: fetchFn } = {}) {
-  storage ??= indexedDbStorage(dbName);
+function fileStore({ dbName, storage: suppliedStorage, fetch: fetchFn } = {}) {
+  const storage = suppliedStorage ?? indexedDbStorage(dbName);
   const doFetch = fetchFn ?? ((...a) => fetch(...a));
   const idOf = (m) => `${m.name}@${m.version}`;
   async function getManifest(url) {
     try {
       const res = await doFetch(url, { cache: "no-cache" });
-      if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+      if (!res.ok)
+        throw new Error(`${res.status} ${res.statusText}`);
       const m = await res.json();
-      if (m.format !== MANIFEST_FORMAT) throw new Error(`unknown manifest format ${m.format}`);
+      if (m.format !== MANIFEST_FORMAT)
+        throw new Error(`unknown manifest format ${m.format}`);
       storage.put(`manifest:${url}`, m).catch(() => {
       });
       return m;
     } catch (err) {
       const saved = await storage.get(`manifest:${url}`).catch(() => null);
-      if (saved) return saved;
-      throw codedError("download-failed", `could not load ${url}: ${err.message}`);
+      if (saved)
+        return saved;
+      throw codedError("download-failed", `could not load ${url}: ${errorFields(err).message}`);
     }
   }
   async function removeName(name, keepId) {
@@ -85,25 +94,29 @@ function fileStore({ dbName, storage, fetch: fetchFn } = {}) {
     try {
       res = await doFetch(url);
     } catch (e) {
-      throw codedError("download-failed", `${url}: ${e.message}`);
+      throw codedError("download-failed", `${url}: ${errorFields(e).message}`);
     }
-    if (!res.ok) throw codedError("download-failed", `${url}: ${res.status} ${res.statusText}`);
+    if (!res.ok)
+      throw codedError("download-failed", `${url}: ${res.status} ${res.statusText}`);
     const out = new Uint8Array(expected);
     const reader = res.body.getReader();
     let n = 0;
     try {
       for (; ; ) {
         const { done, value } = await reader.read();
-        if (done) break;
-        if (n + value.length > expected) throw codedError("download-failed", `${url} is larger than the manifest says`);
+        if (done)
+          break;
+        if (n + value.length > expected)
+          throw codedError("download-failed", `${url} is larger than the manifest says`);
         out.set(value, n);
         n += value.length;
         onBytes(value.length);
       }
     } catch (e) {
-      throw e.code ? e : codedError("download-failed", `${url}: ${e.message}`);
+      throw errorFields(e).code ? e : codedError("download-failed", `${url}: ${errorFields(e).message}`);
     }
-    if (n !== expected) throw codedError("download-failed", `${url}: got ${n} bytes, the manifest says ${expected}`);
+    if (n !== expected)
+      throw codedError("download-failed", `${url}: got ${n} bytes, the manifest says ${expected}`);
     return out;
   }
   return {
@@ -112,6 +125,32 @@ function fileStore({ dbName, storage, fetch: fetchFn } = {}) {
       const m = await getManifest(manifestUrl);
       const cached = !!await storage.get(idOf(m)).catch(() => null);
       return { cached, downloadBytes: m.downloadSize, manifest: m };
+    },
+    /** Describe which manifest parts are stored without reading their contents. */
+    async diagnostics(manifestUrl) {
+      const manifest = await getManifest(manifestUrl);
+      const id = idOf(manifest);
+      let keys = null, complete = "unknown";
+      try {
+        keys = new Set(await storage.keys());
+      } catch {
+      }
+      try {
+        complete = !!await storage.get(id);
+      } catch {
+      }
+      const files = manifest.files.map((file) => {
+        const parts = file.parts.map((part) => ({
+          file: part.file,
+          cached: keys ? keys.has(`${id}/${part.file}`) : "unknown"
+        }));
+        return { name: file.name, parts };
+      });
+      return {
+        manifest: { name: manifest.name, version: manifest.version, format: manifest.format },
+        cached: complete,
+        files
+      };
     },
     /** Delete everything stored for the manifest's name (all versions). */
     async clear(manifestUrl) {
@@ -139,7 +178,8 @@ function fileStore({ dbName, storage, fetch: fetchFn } = {}) {
     async load(manifestUrl, { onFile, onProgress = () => {
     }, log = () => {
     } }) {
-      if (typeof DecompressionStream !== "function") throw codedError("unsupported-browser", "this browser cannot unpack gzip (needs Safari 16.4+ or a recent Chrome/Firefox)");
+      if (typeof DecompressionStream !== "function")
+        throw codedError("unsupported-browser", "this browser cannot unpack gzip (needs Safari 16.4+ or a recent Chrome/Firefox)");
       const where = { file: null, fileIndex: 0, files: 0, part: 0, parts: 0 };
       const counts = { downloaded: 0, toDownload: 0, unpacked: 0, toUnpack: 0 };
       const report = (step) => onProgress({ step, ...where, ...counts });
@@ -148,7 +188,8 @@ function fileStore({ dbName, storage, fetch: fetchFn } = {}) {
       const id = idOf(m);
       const complete = !!await storage.get(id).catch(() => null);
       const verify = !!globalThis.crypto?.subtle;
-      if (!complete && !verify) log("No crypto.subtle (page is not https): skipping checksum verification.");
+      if (!complete && !verify)
+        log("No crypto.subtle (page is not https): skipping checksum verification.");
       const stored = new Set(complete ? [] : await storage.keys().catch(() => []));
       where.files = m.files.length;
       counts.toUnpack = m.files.reduce((n, f) => n + f.size, 0);
@@ -158,7 +199,8 @@ function fileStore({ dbName, storage, fetch: fetchFn } = {}) {
         const key = `${id}/${name}`;
         report("read");
         const fromDevice = await storage.get(key).catch(() => null);
-        if (fromDevice) return new Uint8Array(fromDevice);
+        if (fromDevice)
+          return new Uint8Array(fromDevice);
         if (complete) {
           log(`${name} was missing from the device; downloading it again.`);
           counts.toDownload += size;
@@ -176,7 +218,8 @@ function fileStore({ dbName, storage, fetch: fetchFn } = {}) {
         report("download");
         if (verify) {
           report("verify");
-          if (await sha256Hex(bytes) !== sha256) throw codedError("checksum-mismatch", `${name} is corrupt (checksum mismatch); reload to try again`);
+          if (await sha256Hex(bytes) !== sha256)
+            throw codedError("checksum-mismatch", `${name} is corrupt (checksum mismatch); reload to try again`);
         }
         if (storing) {
           report("store");
@@ -184,7 +227,7 @@ function fileStore({ dbName, storage, fetch: fetchFn } = {}) {
             await storage.put(key, bytes.buffer);
           } catch (e) {
             storing = false;
-            log(`Could not store the files on this device (${e?.name ?? e}); they will download again next time.`);
+            log(`Could not store the files on this device (${errorFields(e).name ?? e}); they will download again next time.`);
           }
         }
         return bytes;
@@ -197,18 +240,20 @@ function fileStore({ dbName, storage, fetch: fetchFn } = {}) {
             where.part = j + 1;
             const bytes = await partBytes(part);
             report("unpack");
-            if (file.gzip) for await (const c of gunzip(bytes)) {
-              written += c.length;
-              counts.unpacked += c.length;
-              yield c;
-            }
+            if (file.gzip)
+              for await (const c of gunzip(bytes)) {
+                written += c.length;
+                counts.unpacked += c.length;
+                yield c;
+              }
             else {
               written += bytes.length;
               counts.unpacked += bytes.length;
               yield bytes;
             }
           }
-          if (written !== file.size) throw codedError("checksum-mismatch", `${file.name} unpacked to ${written} bytes, the manifest says ${file.size}`);
+          if (written !== file.size)
+            throw codedError("checksum-mismatch", `${file.name} unpacked to ${written} bytes, the manifest says ${file.size}`);
         })();
         await onFile(file, chunks, m);
         for await (const _ of chunks) {
@@ -221,7 +266,7 @@ function fileStore({ dbName, storage, fetch: fetchFn } = {}) {
           await removeName(m.name, id);
         } catch (e) {
           storing = false;
-          log(`Could not finish storing the files (${e?.name ?? e}).`);
+          log(`Could not finish storing the files (${errorFields(e).name ?? e}).`);
         }
       }
       return { manifest: m, fromCache: !downloaded, cached: complete || storing };
@@ -229,7 +274,10 @@ function fileStore({ dbName, storage, fetch: fetchFn } = {}) {
   };
 }
 
-// ../kakera/src/host.js
+// ../kakera/dist/version.js
+var VERSION = true ? "0.0.0" : "0.0.0";
+
+// ../kakera/dist/host.js
 var DEFAULTS = Object.freeze({
   filesUrl: null,
   // required from the package (e.g. "/yomiage/")
@@ -248,16 +296,58 @@ var safely = (fn) => {
 };
 var storageOf = (kind) => safely(() => kind === "session" ? sessionStorage : localStorage);
 var abortError = () => new DOMException("The operation was aborted.", "AbortError");
+var redactUrls = (value) => String(value).replace(/https?:\/\/[^\s"'<>]+/g, (value2) => {
+  const trailing = value2.match(/[),.;]+$/)?.[0] ?? "";
+  const url = trailing ? value2.slice(0, -trailing.length) : value2;
+  return `${safeUrl(url)}${trailing}`;
+});
+var errorDetails = (err) => {
+  if (!err)
+    return null;
+  const out = [];
+  const seen = /* @__PURE__ */ new Set();
+  let current = err;
+  for (let depth = 0; current && depth < 5 && !seen.has(current); current = errorFields(current).cause, depth++) {
+    if (typeof current === "object")
+      seen.add(current);
+    const details = errorFields(current);
+    out.push({
+      ...details.code != null && { code: String(details.code) },
+      name: String(details.name ?? "Error"),
+      message: redactUrls(details.message ?? current)
+    });
+  }
+  return out;
+};
+var safeUrl = (url) => {
+  try {
+    const u = new URL(url);
+    u.username = "";
+    u.password = "";
+    u.search = "";
+    u.hash = "";
+    return u.href;
+  } catch {
+    return "unknown";
+  }
+};
+var isoDate = (time) => {
+  try {
+    return new Date(time).toISOString();
+  } catch {
+    return "unknown";
+  }
+};
 function loadTracker(profile) {
   const t0 = performance.now();
   const timings = [];
   let files = {}, fraction = 0, filesDone = false, current = null, last = null, doneMs = 0;
   const elapsed = (now) => Math.round(now - t0);
-  const byTime = () => !!profile && files.toUnpack > 0 && !files.toDownload;
+  const byTime = () => !!profile && (files.toUnpack ?? 0) > 0 && !files.toDownload;
   function compute(now) {
     const { downloaded = 0, toDownload = 0, unpacked = 0, toUnpack = 0 } = files;
     let f;
-    if (byTime()) {
+    if (profile && byTime()) {
       const inStep = current ? Math.min(now - current.start, profile.steps[current.key] ?? 0) : 0;
       f = (doneMs + inStep) / profile.total;
     } else {
@@ -272,6 +362,7 @@ function loadTracker(profile) {
     const { engine, type, id, ...details } = last;
     return {
       ...details,
+      step: last.step,
       stage: downloading ? "downloading" : "preparing",
       fraction,
       loaded: downloading ? downloaded : unpacked,
@@ -284,8 +375,10 @@ function loadTracker(profile) {
     update(p) {
       const now = performance.now();
       last = p;
-      if (!p.engine) files = p;
-      if (p.step === "file-done" && p.fileIndex === p.files) filesDone = true;
+      if (!p.engine)
+        files = p;
+      if (p.step === "file-done" && p.fileIndex === p.files)
+        filesDone = true;
       const key = `${p.step}|${p.file ?? ""}|${p.part ?? ""}`;
       const newStep = current?.key !== key;
       if (newStep) {
@@ -293,16 +386,18 @@ function loadTracker(profile) {
           current.ms = Math.round(now - current.start);
           doneMs += profile?.steps[current.key] ?? 0;
         }
-        current = { key, start: now, step: p.step, ...p.file && { file: p.file }, ...p.part && { part: p.part }, at: elapsed(now) };
+        current = { key, start: now, step: p.step, ...p.file && { file: p.file }, ...p.part && { part: p.part }, at: elapsed(now), ms: 0 };
         timings.push(current);
       }
       compute(now);
-      if (!byTime() && filesDone && p.engine && newStep) fraction = Math.min(0.99, fraction + (0.99 - fraction) / 3);
+      if (!byTime() && filesDone && p.engine && newStep)
+        fraction = Math.min(0.99, fraction + (0.99 - fraction) / 3);
       return { newStep, event: event(now) };
     },
     /** While a step runs: a new event when the time-based bar has moved, else null. */
     tick() {
-      if (!last || !byTime()) return null;
+      if (!last || !byTime())
+        return null;
       const before = fraction;
       compute(performance.now());
       return fraction - before >= 5e-3 ? event(performance.now()) : null;
@@ -310,9 +405,11 @@ function loadTracker(profile) {
     /** Every step with its duration, and the whole load's. */
     finish() {
       const now = performance.now();
-      if (current) current.ms = Math.round(now - current.start);
+      if (current)
+        current.ms = Math.round(now - current.start);
       const steps = {};
-      for (const t of timings) steps[t.key] = (steps[t.key] ?? 0) + t.ms;
+      for (const t of timings)
+        steps[t.key] = (steps[t.key] ?? 0) + t.ms;
       return {
         ms: elapsed(now),
         timings: timings.map(({ key, start, ...t }) => t),
@@ -323,7 +420,8 @@ function loadTracker(profile) {
 }
 function startWorker(url) {
   const u = new URL(url, location.href);
-  if (u.origin === location.origin) return new Worker(u, { type: "module" });
+  if (u.origin === location.origin)
+    return new Worker(u, { type: "module" });
   const blobUrl = URL.createObjectURL(new Blob([`import ${JSON.stringify(u.href)};`], { type: "text/javascript" }));
   const worker = new Worker(blobUrl, { type: "module" });
   const revoke = () => URL.revokeObjectURL(blobUrl);
@@ -340,34 +438,55 @@ async function explainStartFailure(workerUrl, err, ErrorClass, missingHint) {
   } catch {
     return new ErrorClass("download-failed", otherSite ? `could not load ${url.href}: is the site reachable, and does it send CORS headers (Access-Control-Allow-Origin)?` : `could not reach ${url.href} (is the server running, is the device online?)`, { cause: err });
   }
-  if (res.status === 404) return new ErrorClass("engine-failed", `${url.href.replace(/\?.*/, "")} is missing${missingHint ? `: ${missingHint}` : ""}`, { cause: err });
-  if (!res.ok) return new ErrorClass("download-failed", `${url.href}: ${res.status} ${res.statusText}`, { cause: err });
+  if (res.status === 404)
+    return new ErrorClass("engine-failed", `${url.href.replace(/\?.*/, "")} is missing${missingHint ? `: ${missingHint}` : ""}`, { cause: err });
+  if (!res.ok)
+    return new ErrorClass("download-failed", `${url.href}: ${res.status} ${res.statusText}`, { cause: err });
   return err;
 }
 function unsupported() {
-  if (typeof WebAssembly !== "object") return "WebAssembly";
-  if (typeof Worker !== "function") return "Web Workers";
-  if (typeof indexedDB !== "object") return "IndexedDB";
-  if (typeof DecompressionStream !== "function") return "DecompressionStream (Safari 16.4+)";
+  if (typeof WebAssembly !== "object")
+    return "WebAssembly";
+  if (typeof Worker !== "function")
+    return "Web Workers";
+  if (typeof indexedDB !== "object")
+    return "IndexedDB";
+  if (typeof DecompressionStream !== "function")
+    return "DecompressionStream (Safari 16.4+)";
   return null;
 }
 function createPool({ prefix, ErrorClass = KakeraError }) {
   const LOADING = `${prefix}:loading:`, CRASHED = `${prefix}:crashed:`, PROFILE = `${prefix}:timings:`;
   safely(() => {
     const s = storageOf("session"), l = storageOf("local");
-    for (const k of Object.keys(s)) {
-      if (!k.startsWith(LOADING)) continue;
+    for (const k of Object.keys(s ?? {})) {
+      if (!k.startsWith(LOADING))
+        continue;
       l?.setItem(CRASHED + k.slice(LOADING.length), String(Date.now()));
-      s.removeItem(k);
+      s?.removeItem(k);
     }
   });
-  const markLoading = (key) => safely(() => storageOf("session").setItem(LOADING + key, String(Date.now())));
-  const clearLoading = (key) => safely(() => storageOf("session").removeItem(LOADING + key));
-  const crashedAt = (key) => Number(safely(() => storageOf("local").getItem(CRASHED + key)) ?? 0);
-  const forgetCrash = (key) => safely(() => storageOf("local").removeItem(CRASHED + key));
+  const markLoading = (key) => safely(() => storageOf("session")?.setItem(LOADING + key, String(Date.now())));
+  const clearLoading = (key) => safely(() => storageOf("session")?.removeItem(LOADING + key));
+  const crashedAt = (key) => Number(safely(() => storageOf("local")?.getItem(CRASHED + key)) ?? 0);
+  const forgetCrash = (key) => safely(() => storageOf("local")?.removeItem(CRASHED + key));
   const hosts = /* @__PURE__ */ new Map();
   const handlesWithHiddenHook = /* @__PURE__ */ new Set();
   class EngineHost {
+    name;
+    url;
+    key;
+    createWorker;
+    status;
+    worker;
+    loading;
+    pending;
+    nextId;
+    users;
+    loadedBy;
+    idleTimer;
+    stopWhenDone;
+    lastLoad;
     constructor({ name, manifestUrl, createWorker }) {
       this.name = name;
       this.url = manifestUrl;
@@ -379,16 +498,20 @@ function createPool({ prefix, ErrorClass = KakeraError }) {
       this.pending = /* @__PURE__ */ new Map();
       this.nextId = 1;
       this.users = /* @__PURE__ */ new Set();
-      this.idleTimer = null;
+      this.loadedBy = /* @__PURE__ */ new Set();
+      this.idleTimer = void 0;
       this.stopWhenDone = false;
+      this.lastLoad = null;
     }
     active() {
       return [...this.users].filter((h) => h._active);
     }
     setStatus(status) {
-      if (status === this.status) return;
+      if (status === this.status)
+        return;
       this.status = status;
-      for (const h of this.users) h._emitStatus();
+      for (const h of this.users)
+        h._emitStatus();
     }
     // ---- policy, combined over the handles using this engine
     idleMs() {
@@ -404,54 +527,69 @@ function createPool({ prefix, ErrorClass = KakeraError }) {
     }
     /** Start the worker and load the engine. Shared: concurrent callers get the same promise. */
     load() {
-      if (this.status === "ready") return Promise.resolve({ fromCache: true });
+      if (this.status === "ready")
+        return Promise.resolve({ fromCache: true });
       this.loading ??= (async () => {
+        this.lastLoad = { startedAt: Date.now(), status: "loading", log: [], timings: [] };
         markLoading(this.key);
-        this.worker = this.createWorker();
+        try {
+          this.worker = this.createWorker();
+        } catch (err) {
+          this.lastLoad = { ...this.lastLoad, status: "failed", finishedAt: Date.now(), error: errorDetails(err) };
+          throw err;
+        }
         this.worker.onmessage = ({ data }) => this.onMessage(data);
         this.worker.onerror = (e) => {
           e.preventDefault?.();
           const loading = this.status !== "ready";
-          this.kill(new ErrorClass(
-            loading ? "engine-failed" : "worker-crashed",
-            `${this.name} worker ${loading ? "failed to start" : "crashed"}: ${e.message || "unknown error"}`
-          ));
+          this.kill(new ErrorClass(loading ? "engine-failed" : "worker-crashed", `${this.name} worker ${loading ? "failed to start" : "crashed"}: ${e.message || "unknown error"}`));
         };
         this.setStatus("loading");
         const profileKey = `${PROFILE}${this.key}`;
-        const tracker = loadTracker(safely(() => JSON.parse(storageOf("local").getItem(profileKey))) ?? null);
+        const tracker = loadTracker(safely(() => JSON.parse(storageOf("local")?.getItem(profileKey) ?? "null")) ?? null);
         const emit = (event, value) => {
-          for (const h of this.active()) h._emit(event, value);
+          if (event === "log")
+            this.lastLoad?.log.push(String(value));
+          for (const h of this.active())
+            h._emit(event, value);
         };
         const ticker = setInterval(() => {
           const e = tracker.tick();
-          if (e) emit("progress", e);
+          if (e)
+            emit("progress", e);
         }, 200);
         try {
           const result = await this.call({ type: "load", manifestUrl: this.url, dbName: prefix }, {
             stall: this.loadStallMs(),
             onProgress: (p) => {
-              if (!p.step) return;
-              const { event, newStep } = tracker.update(p);
+              if (!p.step)
+                return;
+              const { event, newStep } = tracker.update({ ...p, step: p.step });
               if (newStep) {
-                const where = event.file ? ` ${event.file}${event.parts > 1 ? ` part ${event.part}/${event.parts}` : ""}` : "";
+                const where = event.file ? ` ${event.file}${(event.parts ?? 0) > 1 ? ` part ${event.part}/${event.parts}` : ""}` : "";
                 emit("log", `${(event.ms / 1e3).toFixed(2)} s  ${event.step}${where}`);
               }
-              if (p.step === "manifest") return;
+              if (p.step === "manifest")
+                return;
               this.setStatus(event.stage === "downloading" ? "downloading" : "loading");
               emit("progress", event);
             }
           });
           clearInterval(ticker);
           const { ms, timings, profile } = tracker.finish();
-          if (result?.fromCache !== false) safely(() => storageOf("local").setItem(profileKey, JSON.stringify(profile)));
+          this.lastLoad = { ...this.lastLoad, status: "ready", finishedAt: Date.now(), ms, timings };
+          if (result?.fromCache !== false)
+            safely(() => storageOf("local")?.setItem(profileKey, JSON.stringify(profile)));
           this.setStatus("ready");
           emit("progress", { stage: "ready", step: "ready", fraction: 1, ms });
           emit("log", `${(ms / 1e3).toFixed(2)} s  ready`);
           this.touch();
           return { fromCache: true, ...result, ms, timings };
         } catch (err) {
-          if (this.worker) this.kill(err, "not-loaded");
+          const finished = tracker.finish();
+          this.lastLoad = { ...this.lastLoad, status: "failed", finishedAt: Date.now(), ...finished, error: errorDetails(err) };
+          if (this.worker)
+            this.kill(err, "not-loaded");
           throw err;
         } finally {
           clearInterval(ticker);
@@ -463,11 +601,13 @@ function createPool({ prefix, ErrorClass = KakeraError }) {
     }
     /** Send a message; resolves with the worker's result. `stall` = ms without any message before giving up. */
     call(msg, { stall, signal, onProgress } = {}) {
-      if (!this.worker) return Promise.reject(new ErrorClass("not-loaded", `${this.name} is not loaded`));
-      if (signal?.aborted) return Promise.reject(abortError());
+      if (!this.worker)
+        return Promise.reject(new ErrorClass("not-loaded", `${this.name} is not loaded`));
+      if (signal?.aborted)
+        return Promise.reject(abortError());
       return new Promise((resolve, reject) => {
         const id = this.nextId++;
-        const entry = { resolve, reject, onProgress, stall, timer: null };
+        const entry = { resolve: (value) => resolve(value), reject, onProgress, stall, timer: void 0 };
         const onAbort = () => {
           this.settle(id);
           reject(abortError());
@@ -481,7 +621,8 @@ function createPool({ prefix, ErrorClass = KakeraError }) {
     }
     armWatchdog(id) {
       const e = this.pending.get(id);
-      if (!e?.stall) return;
+      if (!e?.stall)
+        return;
       clearTimeout(e.timer);
       e.timer = setTimeout(() => {
         this.kill(new ErrorClass("timeout", `${this.name} stopped responding (no progress for ${Math.round(e.stall / 1e3)} s); it was stopped to free memory`));
@@ -490,7 +631,8 @@ function createPool({ prefix, ErrorClass = KakeraError }) {
     /** Remove a pending call (finished, failed or aborted). */
     settle(id) {
       const e = this.pending.get(id);
-      if (!e) return null;
+      if (!e)
+        return null;
       clearTimeout(e.timer);
       e.cleanup?.();
       this.pending.delete(id);
@@ -502,16 +644,23 @@ function createPool({ prefix, ErrorClass = KakeraError }) {
     }
     onMessage(data) {
       const e = this.pending.get(data.id);
-      if (!e) return;
+      if (!e)
+        return;
       if (data.type === "done" || data.type === "error") {
         this.settle(data.id);
-        if (data.type === "done") e.resolve(data.result);
-        else e.reject(new ErrorClass(data.code ?? "engine-failed", data.message));
+        if (data.type === "done")
+          e.resolve(data.result);
+        else
+          e.reject(new ErrorClass(data.code ?? "engine-failed", data.message));
         return;
       }
-      for (const id of this.pending.keys()) this.armWatchdog(id);
-      if (data.type === "progress") e.onProgress?.(data);
-      if (data.type === "log") for (const h of this.users) h._emit("log", data.msg);
+      for (const id of this.pending.keys())
+        this.armWatchdog(id);
+      if (data.type === "progress")
+        e.onProgress?.(data);
+      if (data.type === "log")
+        for (const h of this.users)
+          h._emit("log", data.msg);
     }
     /** Terminate the worker and reject everything pending with `err`. */
     kill(err, status = "stopped") {
@@ -519,18 +668,21 @@ function createPool({ prefix, ErrorClass = KakeraError }) {
       this.worker = null;
       clearTimeout(this.idleTimer);
       clearLoading(this.key);
-      for (const id of [...this.pending.keys()]) this.settle(id)?.reject(err);
+      for (const id of [...this.pending.keys()])
+        this.settle(id)?.reject(err);
       this.stopWhenDone = false;
       this.setStatus(this.status === "ready" || this.status === "stopped" ? status : "not-loaded");
     }
     /** Free the memory. The next call of a handle that loaded it reloads from the device. */
     unload() {
-      if (!this.worker) return;
+      if (!this.worker)
+        return;
       this.kill(new ErrorClass("disposed", `${this.name} was unloaded`), "stopped");
     }
     /** Unload if no handle wants the engine any more. */
     release() {
-      if (this.active().length === 0) this.unload();
+      if (this.active().length === 0)
+        this.unload();
     }
     /** Restart the idle countdown. */
     touch() {
@@ -541,37 +693,62 @@ function createPool({ prefix, ErrorClass = KakeraError }) {
       }
     }
     onHidden() {
-      if (this.status !== "ready" || !this.stopsWhenHidden()) return;
-      if (this.pending.size) this.stopWhenDone = true;
-      else this.unload();
+      if (this.status !== "ready" || !this.stopsWhenHidden())
+        return;
+      if (this.pending.size)
+        this.stopWhenDone = true;
+      else
+        this.unload();
     }
   }
   if (typeof document !== "undefined") {
     document.addEventListener("visibilitychange", () => {
       if (document.visibilityState === "hidden") {
-        for (const h of hosts.values()) h.onHidden();
-        for (const h of handlesWithHiddenHook) safely(() => h._onHidden());
+        for (const h of hosts.values())
+          h.onHidden();
+        for (const h of handlesWithHiddenHook)
+          safely(() => h._onHidden?.());
       }
     });
     addEventListener("pagehide", () => {
-      for (const h of hosts.values()) if (h.loading) clearLoading(h.key);
+      for (const h of hosts.values())
+        if (h.loading)
+          clearLoading(h.key);
     });
     addEventListener("pageshow", (e) => {
       if (e.persisted) {
-        for (const h of hosts.values()) if (h.loading) markLoading(h.key);
+        for (const h of hosts.values())
+          if (h.loading)
+            markLoading(h.key);
       }
     });
   }
   class Handle {
+    _opts;
+    _host;
+    _active;
+    _loaded;
+    _own;
+    _loadPromise;
+    _calls;
+    _disposeCtrl;
+    _listeners;
+    _lastError;
+    _lastStatus;
+    _files;
+    _onHidden;
     constructor(options) {
       const o = { ...DEFAULTS, ...options };
-      if (o.workerUrl) o.createWorker = () => startWorker(o.workerUrl);
-      if (!o.name || !o.filesUrl || typeof o.createWorker !== "function") throw new TypeError("handle(): name, filesUrl and workerUrl (or createWorker) are required");
+      if (o.workerUrl)
+        o.createWorker = () => startWorker(o.workerUrl);
+      if (!o.name || !o.filesUrl || typeof o.createWorker !== "function")
+        throw new TypeError("handle(): name, filesUrl and workerUrl (or createWorker) are required");
       o.crashGuard = o.crashGuard === false ? false : { ...DEFAULTS.crashGuard, ...o.crashGuard };
       this._opts = o;
       const manifestUrl = new URL("manifest.json", new URL(o.filesUrl.endsWith("/") ? o.filesUrl : `${o.filesUrl}/`, location.href)).href;
       const key = `${o.name}|${manifestUrl}`;
-      if (!hosts.has(key)) hosts.set(key, new EngineHost({ name: o.name, manifestUrl, createWorker: o.createWorker }));
+      if (!hosts.has(key))
+        hosts.set(key, new EngineHost({ name: o.name, manifestUrl, createWorker: o.createWorker }));
       this._host = hosts.get(key);
       this._active = false;
       this._loaded = false;
@@ -580,26 +757,33 @@ function createPool({ prefix, ErrorClass = KakeraError }) {
       this._calls = /* @__PURE__ */ new Set();
       this._disposeCtrl = new AbortController();
       this._listeners = /* @__PURE__ */ new Map();
+      this._lastError = null;
       this._lastStatus = this.status;
       this._files = fileStore({ dbName: prefix });
     }
     get status() {
-      if (this._active) return this._host.status === "not-loaded" ? this._loaded ? "stopped" : "loading" : this._host.status;
+      if (this._active) {
+        const s = this._host.status;
+        return s === "not-loaded" ? this._loaded ? "stopped" : "loading" : s === "ready" && !this._loaded ? "loading" : s;
+      }
       return this._loaded ? "stopped" : this._own;
     }
     /** Subscribe to "status", "progress" or "log". Returns an unsubscribe function. */
     on(event, listener) {
-      if (!this._listeners.has(event)) this._listeners.set(event, /* @__PURE__ */ new Set());
+      if (!this._listeners.has(event))
+        this._listeners.set(event, /* @__PURE__ */ new Set());
       const set = this._listeners.get(event);
       set.add(listener);
       return () => set.delete(listener);
     }
     _emit(event, value) {
-      for (const fn of this._listeners.get(event) ?? []) safely(() => fn(value));
+      for (const fn of this._listeners.get(event) ?? [])
+        safely(() => fn(value));
     }
     _emitStatus() {
       const s = this.status;
-      if (s === this._lastStatus) return;
+      if (s === this._lastStatus)
+        return;
       this._lastStatus = s;
       this._emit("status", s);
     }
@@ -610,7 +794,8 @@ function createPool({ prefix, ErrorClass = KakeraError }) {
     }
     _crashed() {
       const g = this._opts.crashGuard;
-      if (!g) return false;
+      if (!g)
+        return false;
       const t = crashedAt(this._host.key);
       return t > 0 && Date.now() - t < g.retryAfterDays * 864e5;
     }
@@ -623,8 +808,71 @@ function createPool({ prefix, ErrorClass = KakeraError }) {
       const { cached, downloadBytes } = await this._files.info(this._host.url);
       return { cached, downloadBytes, downloadMB: Math.round(downloadBytes / 1e6) };
     }
+    /** A plain-text report with device and load details. Never includes engine call payloads. */
+    async debugReport({ packageName = "unknown", packageVersion = "unknown" } = {}) {
+      try {
+        let files;
+        try {
+          files = await this._files.diagnostics(this._host.url);
+        } catch (err) {
+          files = { error: errorDetails(err) };
+        }
+        const storage = { estimate: "unknown", persisted: "unknown" };
+        try {
+          const estimate = await navigator.storage?.estimate?.();
+          if (estimate)
+            storage.estimate = { usage: estimate.usage ?? null, quota: estimate.quota ?? null };
+        } catch {
+        }
+        try {
+          const persisted = await navigator.storage?.persisted?.();
+          if (typeof persisted === "boolean")
+            storage.persisted = persisted;
+        } catch {
+        }
+        const crashAt = crashedAt(this._host.key);
+        const retryDays = this._opts.crashGuard ? this._opts.crashGuard.retryAfterDays : void 0;
+        const report = {
+          package: { name: packageName, version: packageVersion },
+          kakeraVersion: VERSION,
+          generatedAt: (/* @__PURE__ */ new Date()).toISOString(),
+          browser: {
+            userAgent: safely(() => navigator.userAgent) ?? "unknown",
+            deviceMemoryGB: safely(() => navigator.deviceMemory) ?? "unknown",
+            crossOriginIsolated: typeof crossOriginIsolated === "boolean" ? crossOriginIsolated : "unknown"
+          },
+          filesUrl: safeUrl(this._host.url.replace(/manifest\.json(?:\?.*)?$/, "")),
+          manifest: files?.manifest ?? "unknown",
+          manifestMatchesPackage: files?.manifest?.version == null ? "unknown" : files.manifest.version === packageVersion,
+          files: files?.files ?? "unknown",
+          filesError: files?.error ?? void 0,
+          status: this.status,
+          lastError: this._lastError ?? "none",
+          storage,
+          crashGuard: {
+            enabled: !!this._opts.crashGuard,
+            recordedAt: crashAt ? isoDate(crashAt) : "none",
+            blockedUntil: crashAt && retryDays ? isoDate(crashAt + retryDays * 864e5) : "none"
+          },
+          lastLoad: this._host.lastLoad ? {
+            startedAt: isoDate(this._host.lastLoad.startedAt),
+            finishedAt: this._host.lastLoad.finishedAt ? isoDate(this._host.lastLoad.finishedAt) : "in progress",
+            status: this._host.lastLoad.status,
+            ms: this._host.lastLoad.ms ?? "unknown",
+            log: this._host.lastLoad.log,
+            timings: this._host.lastLoad.timings ?? [],
+            ...this._host.lastLoad.error && { error: this._host.lastLoad.error }
+          } : "none"
+        };
+        return `Debug report
+${JSON.stringify(report, null, 2)}`;
+      } catch {
+        return "Debug report\nReport details unavailable.";
+      }
+    }
     load() {
-      if (this._loaded && this._active && this._host.status === "ready") return Promise.resolve({ fromCache: true });
+      if (this._loaded && this._active && this._host.status === "ready")
+        return Promise.resolve({ fromCache: true });
       this._loadPromise ??= this._load().finally(() => {
         this._loadPromise = null;
       });
@@ -633,28 +881,35 @@ function createPool({ prefix, ErrorClass = KakeraError }) {
     async _load() {
       const missing = unsupported();
       if (missing) {
+        const err = new ErrorClass("unsupported-browser", `this browser lacks ${missing}`);
+        this._lastError = errorDetails(err);
         this._fail("error");
-        throw new ErrorClass("unsupported-browser", `this browser lacks ${missing}`);
+        throw err;
       }
       if (this._crashed()) {
         this._fail("unavailable");
-        throw new ErrorClass("unavailable", `loading ${this._opts.name} crashed this tab recently; not loading it again yet (resetCrashGuard() to retry)`);
+        const err = new ErrorClass("unavailable", `loading ${this._opts.name} crashed this tab recently; not loading it again yet (resetCrashGuard() to retry)`);
+        this._lastError = errorDetails(err);
+        throw err;
       }
       this._attach();
       try {
         const res = await this._host.load();
         this._loaded = true;
+        this._host.loadedBy.add(this);
         this._emitStatus();
-        if (!res.fromCache && this._opts.persistStorage) navigator.storage?.persist?.()?.catch?.(() => {
-        });
+        if (!res.fromCache && this._opts.persistStorage)
+          navigator.storage?.persist?.()?.catch?.(() => {
+          });
         return { fromCache: !!res.fromCache, ...res.timings && { ms: res.ms, timings: res.timings } };
       } catch (err) {
+        this._lastError = errorDetails(err);
         this._active = false;
         this._host.users.delete(this);
         this._host.release();
-        this._fail("error");
+        this._fail(errorFields(err).code === "disposed" ? "not-loaded" : "error");
         const { workerUrl, missingHint } = this._opts;
-        throw workerUrl && err.code === "engine-failed" && /failed to start/.test(err.message) ? await explainStartFailure(workerUrl, err, ErrorClass, missingHint) : err;
+        throw workerUrl && errorFields(err).code === "engine-failed" && /failed to start/.test(String(errorFields(err).message)) ? await explainStartFailure(workerUrl, err, ErrorClass, missingHint) : err;
       }
     }
     _fail(status) {
@@ -668,20 +923,25 @@ function createPool({ prefix, ErrorClass = KakeraError }) {
      * @param {{ stall?: number, signal?: AbortSignal }} [o]
      */
     call(type, payload = {}, { stall, signal } = {}) {
-      if (!this._loaded) return Promise.reject(new ErrorClass("not-loaded", "call load() first"));
+      if (!this._loaded)
+        return Promise.reject(new ErrorClass("not-loaded", "call load() first"));
       const ctrl = new AbortController();
       const abort = () => ctrl.abort();
       const disposed = this._disposeCtrl.signal;
       signal?.addEventListener("abort", abort, { once: true });
       disposed.addEventListener("abort", abort, { once: true });
-      if (signal?.aborted) ctrl.abort();
+      if (signal?.aborted)
+        ctrl.abort();
       return new Promise((resolve, reject) => {
         const entry = reject;
         this._calls.add(entry);
         (async () => {
-          if (!this._active) this._attach();
-          if (this._host.status !== "ready") await this._host.load();
-          if (ctrl.signal.aborted) throw abortError();
+          if (!this._active)
+            this._attach();
+          if (this._host.status !== "ready")
+            await this._host.load();
+          if (ctrl.signal.aborted)
+            throw abortError();
           const result = await this._host.call({ type, ...payload }, { stall, signal: ctrl.signal });
           this._host.touch();
           return result;
@@ -694,34 +954,48 @@ function createPool({ prefix, ErrorClass = KakeraError }) {
     }
     /** Free the memory now, if no other handle needs the engine. The next call reloads it from the device. */
     unload() {
-      if (!this._active) return;
+      if (!this._active)
+        return;
       this._active = false;
       this._host.release();
       this._emitStatus();
     }
     /** Back to "not-loaded": pending calls reject with "disposed"; load() is needed again. */
     dispose() {
-      const err = new ErrorClass("disposed", "disposed");
-      for (const reject of [...this._calls]) reject(err);
+      this._reset(new ErrorClass("disposed", "disposed"));
+      this._host.release();
+      handlesWithHiddenHook.delete(this);
+    }
+    /** Back to "not-loaded" without stopping the engine: pending calls reject with `err`. */
+    _reset(err) {
+      for (const reject of [...this._calls])
+        reject(err);
       this._calls.clear();
       this._disposeCtrl.abort();
       this._disposeCtrl = new AbortController();
       this._active = false;
       this._loaded = false;
       this._host.users.delete(this);
-      this._host.release();
-      handlesWithHiddenHook.delete(this);
+      this._host.loadedBy.delete(this);
       this._own = "not-loaded";
       this._emitStatus();
     }
-    /** Delete the engine's files from this device. */
+    /**
+     * Delete the engine's files from this device. Also stops the engine and puts every handle that loaded it back to
+     * "not-loaded" (pending calls reject with "disposed"), so nothing downloads again until a load().
+     */
     async clearCache() {
+      const err = new ErrorClass("disposed", `${this._opts.name}'s files were deleted from this device`);
+      for (const h of /* @__PURE__ */ new Set([...this._host.loadedBy, ...this._host.users, this]))
+        h._reset(err);
+      this._host.kill(err, "not-loaded");
       await this._files.clear(this._host.url);
     }
     /** Forget a recorded crash so the next load() tries again. */
     resetCrashGuard() {
       forgetCrash(this._host.key);
-      if (this._own === "unavailable") this._fail("not-loaded");
+      if (this._own === "unavailable")
+        this._fail("not-loaded");
     }
   }
   return {
@@ -731,7 +1005,7 @@ function createPool({ prefix, ErrorClass = KakeraError }) {
   };
 }
 
-// src/presets.js
+// src/presets.ts
 var PRESETS = Object.freeze({
   original: Object.freeze({ pitch: 0, formant: 0, breathReduction: 0 }),
   soft: Object.freeze({ pitch: -2, formant: -0.5, breathReduction: 0.6 }),
@@ -749,7 +1023,7 @@ var RANGES = Object.freeze({
 });
 var DEFAULTS2 = Object.freeze({ preset: "soft", speed: 0.8, expressiveness: 0.5, rhythmVariation: 0.5 });
 var BASE = DEFAULTS2;
-var NAMES = ["preset", ...Object.keys(RANGES)];
+var NAMES = Object.keys(RANGES);
 function resolveSettings(...levels) {
   const out = { ...BASE, ...PRESETS[BASE.preset] };
   for (const level of levels) {
@@ -761,7 +1035,6 @@ function resolveSettings(...levels) {
       Object.assign(out, PRESETS[level.preset], { preset: level.preset });
     }
     for (const name of NAMES) {
-      if (name === "preset") continue;
       const v = level[name];
       if (typeof v !== "number" || !Number.isFinite(v)) continue;
       const [min, max] = RANGES[name];
@@ -771,7 +1044,7 @@ function resolveSettings(...levels) {
   return out;
 }
 
-// src/sentences.js
+// src/sentences.ts
 var MAX_CHARS = 40;
 var ENDERS = "\u3002\uFF01\uFF1F!?\u2026";
 var OPEN = "\u300C\u300E\uFF08(\uFF3B[\u3010";
@@ -828,7 +1101,7 @@ function splitForSpeech(text, maxChars = MAX_CHARS) {
         out.push(piece);
         piece = null;
       }
-      piece = piece ? { ...piece, end } : { start, end };
+      piece = { start: piece ? piece.start : start, end };
     }
     if (piece) out.push(piece);
   }
@@ -840,7 +1113,7 @@ function splitForSpeech(text, maxChars = MAX_CHARS) {
   }).filter((p) => p.text);
 }
 
-// src/playback.js
+// src/playback.ts
 var ctx = null;
 var sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 function audioContext() {
@@ -881,6 +1154,11 @@ async function audioRunning(waitMs = 1500) {
   return c.state === "running";
 }
 var Playback = class {
+  ctx;
+  next;
+  sources;
+  timers;
+  last;
   constructor() {
     this.ctx = audioContext();
     this.next = 0;
@@ -941,7 +1219,7 @@ var Playback = class {
   }
 };
 
-// src/wav.js
+// src/wav.ts
 function toWav({ samples, sampleRate }) {
   const n = samples.length;
   const view = new DataView(new ArrayBuffer(44 + n * 2));
@@ -964,10 +1242,14 @@ function toWav({ samples, sampleRate }) {
   return new Blob([view], { type: "audio/wav" });
 }
 
-// src/index.js
-var VERSION = true ? "0.2.0" : "dev";
+// src/index.ts
+var VERSION2 = true ? "0.3.0" : "dev";
 var CREDIT = "\u97F3\u58F0\u5408\u6210\u306B\u306F\u3001\u30D5\u30EA\u30FC\u7D20\u6750\u30AD\u30E3\u30E9\u30AF\u30BF\u30FC\u300C\u3064\u304F\u3088\u307F\u3061\u3083\u3093\u300D\uFF08\xA9 Rei Yumesaki\uFF09\u304C\u7121\u6599\u516C\u958B\u3057\u3066\u3044\u308B\u97F3\u58F0\u30C7\u30FC\u30BF\u3092\u4F7F\u7528\u3057\u3066\u3044\u307E\u3059\u3002\u25A0\u3064\u304F\u3088\u307F\u3061\u3083\u3093\u30B3\u30FC\u30D1\u30B9\uFF08CV.\u5922\u524D\u9ECE\uFF09https://tyc.rei-yumesaki.net/material/corpus/";
-var VoiceError = class extends KakeraError {
+var VoiceErrorBase = KakeraError;
+var VoiceError = class extends VoiceErrorBase {
+  constructor(code, message, options) {
+    super(code, message, options);
+  }
 };
 var pool = createPool({ prefix: "yomiage", ErrorClass: VoiceError });
 var SETTINGS = /* @__PURE__ */ new Set(["preset", ...Object.keys(RANGES)]);
@@ -1001,7 +1283,7 @@ function createVoice(options = {}) {
   checkOtherLanguages(otherLanguages);
   const speakStall = timeouts.speakStall ?? 2e4;
   const base = new URL(filesUrl.endsWith("/") ? filesUrl : `${filesUrl}/`, globalThis.location?.href).href;
-  const workerUrl = new URL(`yomiage-worker.js?v=${encodeURIComponent(VERSION)}`, base).href;
+  const workerUrl = new URL(`yomiage-worker.js?v=${encodeURIComponent(VERSION2)}`, base).href;
   const handle = pool.handle(definedOnly({
     name: "tsukuyomi",
     filesUrl: base,
@@ -1025,8 +1307,7 @@ function createVoice(options = {}) {
     }
   }
   const callSettings = (o) => {
-    const settings = resolveSettings(defaults, pick(o, SETTINGS));
-    delete settings.preset;
+    const { preset: _preset, ...settings } = resolveSettings(defaults, pick(o, SETTINGS));
     return settings;
   };
   return {
@@ -1034,16 +1315,19 @@ function createVoice(options = {}) {
       return handle.status;
     },
     /** Subscribe to "status", "progress" ({ loaded, total } bytes) or "log". Returns an unsubscribe function. */
-    on: (event, fn) => handle.on(event, fn),
+    // Kakera also types the internal manifest step with file:null; that step is not emitted to listeners.
+    on: handle.on.bind(handle),
     /** { cached, downloadBytes, downloadMB } without downloading anything. */
     info: () => handle.info(),
+    /** Plain-text report for bug reports. Never includes spoken text. */
+    debugReport: () => handle.debugReport({ packageName: "yomiage", packageVersion: VERSION2 }),
     /** Download (first time) and start the engine. Resolves { fromCache }. */
     async load() {
       const res = await handle.load();
       if (!versionChecked) {
         const engine = await handle.call("version");
-        if (engine !== VERSION && engine !== "dev" && VERSION !== "dev") {
-          throw new VoiceError("engine-failed", `the files at ${base} are from yomiage ${engine}, but the page uses ${VERSION}: run "yomiage copy-files" again`);
+        if (engine !== VERSION2 && engine !== "dev" && VERSION2 !== "dev") {
+          throw new VoiceError("engine-failed", `the files at ${base} are from yomiage ${engine}, but the page uses ${VERSION2}: run "yomiage copy-files" again`);
         }
         versionChecked = true;
       }
@@ -1154,7 +1438,7 @@ export {
   DEFAULTS2 as DEFAULTS,
   PRESETS,
   RANGES,
-  VERSION,
+  VERSION2 as VERSION,
   VoiceError,
   createVoice,
   toWav

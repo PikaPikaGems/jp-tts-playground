@@ -1,4 +1,4 @@
-// src/text.js
+// src/text.ts
 var KANJI = /[㐀-鿿豈-﫿々〆ヵヶ]/;
 var DIGIT = /[0-9０-９]/;
 var isRubyChar = (c) => KANJI.test(c) || DIGIT.test(c);
@@ -169,7 +169,7 @@ var POS_ENGLISH = Object.freeze({
   "\u56FA\u6709\u540D\u8A5E": "proper noun",
   "\u6570\u8A5E": "numeral",
   "\u52A9\u6570\u8A5E": "counter",
-  "\u975E\u81EA\u7ACB\u53EF\u80FD": "dependent (helper use)",
+  "\u975E\u81EA\u7ACB\u53EF\u80FD": "can be bound (helper use)",
   "\u63A5\u7D9A\u52A9\u8A5E": "conjunctive particle",
   "\u62EC\u5F27\u958B": "opening bracket",
   "\u62EC\u5F27\u9589": "closing bracket",
@@ -177,32 +177,32 @@ var POS_ENGLISH = Object.freeze({
   "\u666E\u901A\u540D\u8A5E": "common noun",
   "\u4E00\u822C": "general",
   "\u30D5\u30A3\u30E9\u30FC": "filler",
-  "\u526F\u8A5E\u53EF\u80FD": "can act as adverb",
-  "\u52A9\u6570\u8A5E\u53EF\u80FD": "can act as counter",
-  "\u30B5\u5909\u53EF\u80FD": "suru-verb capable",
-  "\u30B5\u5909\u5F62\u72B6\u8A5E\u53EF\u80FD": "suru-verb / \u306A-adjective capable",
-  "\u5F62\u72B6\u8A5E\u53EF\u80FD": "\u306A-adjective capable",
+  "\u526F\u8A5E\u53EF\u80FD": "can be adverbial",
+  "\u52A9\u6570\u8A5E\u53EF\u80FD": "can be a counter",
+  "\u30B5\u5909\u53EF\u80FD": "can take \u3059\u308B",
+  "\u30B5\u5909\u5F62\u72B6\u8A5E\u53EF\u80FD": "can take \u3059\u308B or \u306A",
+  "\u5F62\u72B6\u8A5E\u53EF\u80FD": "can take \u306A",
   "\u30BF\u30EA": "tari-type",
   "\u52A9\u52D5\u8A5E\u8A9E\u5E79": "auxiliary stem",
+  "\u540D\u8A5E\u7684": "noun-like",
+  "\u52D5\u8A5E\u7684": "verb-like",
+  "\u5F62\u5BB9\u8A5E\u7684": "adjective-like (\u3044)",
+  "\u5F62\u72B6\u8A5E\u7684": "adjectival-noun-like (\u306A)",
   "\u4FC2\u52A9\u8A5E": "binding particle (\u306F, \u3082)",
   "\u683C\u52A9\u8A5E": "case particle (\u304C, \u3092, \u306B)",
   "\u7D42\u52A9\u8A5E": "sentence-final particle (\u306D, \u3088)",
   "\u526F\u52A9\u8A5E": "adverbial particle (\u3060\u3051, \u307E\u3067)",
-  "\u6E96\u4F53\u52A9\u8A5E": "nominalizing particle (\u306E, \u3093)",
-  "\u9593\u6295\u52A9\u8A5E": "interjectory particle",
-  "\u4E26\u7ACB\u52A9\u8A5E": "parallel particle (\u3068, \u3084)",
+  "\u6E96\u4F53\u52A9\u8A5E": "nominal particle (\u306E, \u3093)",
   "\u53E5\u70B9": "period",
   "\u8AAD\u70B9": "comma",
   "\uFF21\uFF21": "ASCII art",
   "\u9854\u6587\u5B57": "emoticon",
+  "\u6587\u5B57": "character",
   "\u5730\u540D": "place name",
   "\u4EBA\u540D": "person name",
   "\u56FD": "country",
   "\u540D": "given name",
-  "\u59D3": "family name",
-  "\u7D44\u7E54\u540D": "organization",
-  "\u656C\u8A9E": "honorific",
-  "\u6587\u5B57": "character"
+  "\u59D3": "family name"
 });
 var posInEnglish = (tag) => POS_ENGLISH[tag] ?? tag;
 function posLabel(word, lang = "ja") {
